@@ -1,0 +1,139 @@
+@import "tailwindcss" source(none);
+@source "../src";
+@source "../index.html";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * Design system definition.
+ *
+ * The @theme inline block maps CSS custom properties to Tailwind utility
+ * classes (e.g. --color-primary -> bg-primary, text-primary).
+ *
+ * The :root and .dark blocks define the actual color values using oklch.
+ * All colors MUST use oklch format.
+ *
+ * To add a new semantic color:
+ * 1. Add the variable to :root (light value) and .dark (dark value)
+ * 2. Register it in @theme inline as --color-<name>: var(--<name>)
+ */
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --font-sans: "Inter", system-ui, sans-serif;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-ink: var(--ink);
+  --color-ink-mid: var(--ink-mid);
+  --color-ink-soft: var(--ink-soft);
+  --color-ink-pale: var(--ink-pale);
+  --color-subtle: var(--subtle);
+  --color-track: var(--track);
+  --color-surface-alt: var(--surface-alt);
+  --color-hairline: var(--hairline);
+  --color-faint: var(--faint);
+}
+
+:root {
+  --radius: 0.25rem;
+  --background: oklch(0.9663 0.004 106.47);
+  --foreground: oklch(0.1893 0.0098 107.3);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.1893 0.0098 107.3);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.1893 0.0098 107.3);
+  --primary: oklch(0.1893 0.0098 107.3);
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.9263 0.008 106.56);
+  --secondary-foreground: oklch(0.1893 0.0098 107.3);
+  --muted: oklch(0.9444 0.008 106.55);
+  --muted-foreground: oklch(0.5349 0.0167 106.95);
+  --accent: oklch(0.4619 0.249 264.63);
+  --accent-foreground: oklch(1 0 0);
+  --destructive: oklch(0.4619 0.249 264.63);
+  --destructive-foreground: oklch(1 0 0);
+  --border: oklch(0.8925 0.0094 106.59);
+  --input: oklch(0.8334 0.0123 106.66);
+  --ring: oklch(0.4619 0.249 264.63);
+
+  /* dashboard scale */
+  --ink: oklch(0.1893 0.0098 107.3);
+  --ink-mid: oklch(0.6365 0.0175 106.89);
+  --ink-soft: oklch(0.8175 0.0138 106.7);
+  --ink-pale: oklch(0.9139 0.0094 106.58);
+  --subtle: oklch(0.6134 0.0162 106.87);
+  --track: oklch(0.9444 0.008 106.55);
+  --surface-alt: oklch(0.9845 0.0026 106.45);
+  --hairline: oklch(0.9535 0.008 106.55);
+  --faint: oklch(0.6827 0.0172 106.85);
+}
+
+@keyframes wapRise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes wapFade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@utility wap-rise {
+  animation: wapRise 0.55s ease-out both;
+}
+@utility wap-fade {
+  animation: wapFade 0.2s ease-out both;
+}
+@utility tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: #fff;
+  }
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+  }
+}
