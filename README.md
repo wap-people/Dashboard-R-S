@@ -43,7 +43,18 @@ Esse endereço não pede chave de API e o Google devolve
 
 A cada abertura da página o painel busca os dados novamente, então **não existe
 mais “republicar para atualizar”**: editar a planilha já atualiza o painel.
-O botão *Atualizar do Google Sheets* força uma releitura na hora.
+
+Não existe botão de atualizar — o painel relê a planilha sozinho em três momentos:
+ao abrir, **a cada 5 minutos** com a aba visível, e **ao voltar para a aba** (se a
+última leitura tiver mais de 1 minuto). Com a aba escondida ele não busca nada.
+O intervalo fica em `INTERVALO_ATUALIZACAO_MS`, no topo de `src/App.tsx`.
+
+Duas consequências que valem saber:
+
+- Se a leitura falhar, aparece um aviso vermelho acima do rodapé. Sem botão para
+  tentar de novo, engolir o erro deixaria número velho passando por atual.
+- *Importar dados* (colar a aba à mão) **pausa** a atualização automática, senão a
+  base colada seria varrida no ciclo seguinte. *Restaurar base* religa e relê na hora.
 
 ### Ponto de atenção sobre exposição de dados
 

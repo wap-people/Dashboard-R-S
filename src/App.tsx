@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import logoUrl from "@/assets/wap-logo.png";
 import seed from "@/data/vagas.json";
@@ -18,6 +18,12 @@ const SEED_ROWS = seed as Vaga[];
 const FONTE_PADRAO = "FAROL DE VAGAS 2026 WAP — aba Vagas 2026";
 const LS_ROWS = "wap_rs_full_v1";
 const LS_FONTE = "wap_rs_full_fonte";
+
+/** De quanto em quanto tempo o painel relê a planilha sozinho. */
+const INTERVALO_ATUALIZACAO_MS = 5 * 60 * 1000;
+
+/** Ao voltar para a aba, só relê se a última leitura já tiver esta idade. */
+const IDADE_MINIMA_PARA_RELER_MS = 60 * 1000;
 
 /** BOM do UTF-8, para o Excel abrir o CSV exportado com os acentos certos. */
 const BOM = String.fromCharCode(0xfeff);
@@ -173,10 +179,13 @@ export default function Dashboard() {
   const [pasteOk, setPasteOk] = useState(true);
   const [sincronizando, setSincronizando] = useState(false);
   const [erroSheet, setErroSheet] = useState("");
+  // Uma importação colada à mão não pode ser varrida pela atualização
+  // automática alguns minutos depois, sem ninguém pedir.
+  const [modoManual, setModoManual] = useState(false);
+  const ultimaLeitura = useRef(0);
 
-  const carregarSheet = async (silencioso = false) => {
+  const carregarSheet = async () => {
     setSincronizando(true);
-    setErroSheet("");
     try {
       const res = await getVagasFromSheet();
       if (res.rows.length) {
@@ -185,7 +194,11 @@ export default function Dashboard() {
           new Date(res.carregadoEm).toLocaleString("pt-BR");
         setRows(res.rows as Vaga[]);
         setFonte(novaFonte);
-        setSelMes(mesPadrao(noEscopo(res.rows as Vaga[])));
+        // Não mexer em selMes: a releitura automática jogaria o mês escolhido de
+        // volta para o padrão no meio da análise. buildAnalytics já cai no mês
+        // padrão sozinho quando o escolhido some da base.
+        ultimaLeitura.current = Date.now();
+        setErroSheet("");
         try {
           localStorage.setItem(LS_ROWS, JSON.stringify(res.rows));
           localStorage.setItem(LS_FONTE, novaFonte);
@@ -194,8 +207,9 @@ export default function Dashboard() {
         }
       }
     } catch (e) {
-      if (!silencioso)
-        setErroSheet(e instanceof Error ? e.message : "Falha ao ler a planilha do Google Sheets.");
+      // Sem botão de atualizar, engolir a falha deixaria número velho na tela
+      // passando por atual — e sem nenhuma forma de a pessoa perceber.
+      setErroSheet(e instanceof Error ? e.message : "Falha ao ler a planilha do Google Sheets.");
     } finally {
       setSincronizando(false);
     }
@@ -217,9 +231,37 @@ export default function Dashboard() {
     } else {
       setSelMes(mesPadrao(noEscopo(SEED_ROWS)));
     }
-    void carregarSheet(true);
+    void carregarSheet();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Atualização automática, no lugar do antigo botão "Atualizar do Google Sheets".
+  //
+  // Dois gatilhos, porque sozinhos nenhum dos dois basta: o intervalo mantém um
+  // painel deixado aberto na parede sempre fresco, e o retorno à aba cobre quem
+  // edita a planilha e volta para cá — não faria sentido esperar o próximo ciclo.
+  //
+  // Não roda com a aba escondida (requisição para tela que ninguém vê) nem em
+  // modo manual (sobrescreveria a base colada).
+  useEffect(() => {
+    if (modoManual) return;
+
+    const relerSePreciso = (idadeMinima: number) => {
+      if (document.hidden) return;
+      if (Date.now() - ultimaLeitura.current < idadeMinima) return;
+      void carregarSheet();
+    };
+
+    const id = setInterval(() => relerSePreciso(0), INTERVALO_ATUALIZACAO_MS);
+    const aoVoltar = () => relerSePreciso(IDADE_MINIMA_PARA_RELER_MS);
+    document.addEventListener("visibilitychange", aoVoltar);
+
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", aoVoltar);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modoManual]);
 
   const a = useMemo(() => buildAnalytics(rows, selMes), [rows, selMes]);
 
@@ -242,6 +284,8 @@ export default function Dashboard() {
     setRows(res.rows);
     setFonte(novaFonte);
     setSelMes(mesPadrao(noEscopo(res.rows)));
+    setModoManual(true); // pausa a atualização automática até restaurar a base
+    setErroSheet("");
     setShowImport(false);
     setPasteText("");
     setPasteOk(true);
@@ -263,6 +307,10 @@ export default function Dashboard() {
     setSelMes(mesPadrao(noEscopo(SEED_ROWS)));
     setShowImport(false);
     setPasteMsg("");
+    // Volta ao automático e relê na hora, sem esperar o próximo ciclo.
+    setModoManual(false);
+    ultimaLeitura.current = 0;
+    void carregarSheet();
   };
 
   const exportCsv = () => {
@@ -304,13 +352,6 @@ export default function Dashboard() {
           </div>
         </div>
         <div className="no-print flex flex-wrap items-center gap-2">
-          <button
-            onClick={() => void carregarSheet()}
-            disabled={sincronizando}
-            className="rounded-full border border-primary bg-primary px-[14px] py-[9px] text-xs font-semibold tracking-[-0.01em] text-primary-foreground transition-opacity hover:opacity-80 disabled:opacity-50"
-          >
-            {sincronizando ? "Sincronizando…" : "Atualizar do Google Sheets"}
-          </button>
           <button
             onClick={() => {
               setShowImport(true);
@@ -884,10 +925,12 @@ export default function Dashboard() {
       )}
 
       <footer className="mt-5 flex flex-col items-baseline justify-between gap-[6px] text-[11px] font-medium tracking-[-0.01em] text-faint md:flex-row md:gap-6">
-        <span>{fonte} · meta de SLA 25 dias</span>
+        <span>{sincronizando ? "Lendo a planilha…" : fonte} · meta de SLA 25 dias</span>
         <span>
-          Fonte oficial: Google Sheets “FAROL DE VAGAS 2026 WAP”, aba Vagas 2026 — clique em
-          Atualizar do Google Sheets para recarregar.
+          Fonte oficial: Google Sheets “FAROL DE VAGAS 2026 WAP”, aba Vagas 2026 —{" "}
+          {modoManual
+            ? "atualização automática pausada pela importação manual; use Restaurar base para religar."
+            : "o painel relê a planilha sozinho a cada 5 minutos e ao voltar para esta aba."}
         </span>
       </footer>
 
@@ -902,7 +945,8 @@ export default function Dashboard() {
                 No Excel, selecione a aba <strong>Vagas 2026</strong> inteira com a linha de
                 cabeçalho (Ctrl+A no bloco de dados, Ctrl+C) e cole abaixo. O painel identifica as
                 colunas pelo nome, recalcula acumulado, mês a mês e cenário atual, e salva tudo neste
-                navegador.
+                navegador. Enquanto essa base colada estiver em uso, a atualização automática fica
+                pausada — clique em <strong>Restaurar base</strong> para voltar a ler o Google Sheets.
               </p>
             </div>
             <div className="flex flex-wrap gap-[6px]">
