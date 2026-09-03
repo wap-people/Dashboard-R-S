@@ -22,11 +22,19 @@ chave nenhuma. Por isso agora **o próprio navegador de quem abre o painel** lê
 planilha, pelo endpoint público de exportação do Google Sheets:
 
 ```
-https://docs.google.com/spreadsheets/d/<ID>/gviz/tq?tqx=out:csv&gid=<GID>
+https://docs.google.com/spreadsheets/d/<ID>/export?format=csv&gid=<GID>
 ```
 
-Esse endereço não pede chave de API e o Google devolve o cabeçalho
-`Access-Control-Allow-Origin`, o que autoriza a leitura pelo navegador.
+Esse endereço não pede chave de API e o Google devolve
+`Access-Control-Allow-Origin: *`, o que autoriza a leitura pelo navegador.
+
+> [!WARNING]
+> **Não troque este endereço pelo `gviz/tq`.** O `gviz` respeita o filtro básico
+> que estiver aplicado na aba: se alguém deixar um filtro ligado em "Vagas 2026",
+> ele devolve só as linhas visíveis e o painel passa a calcular em cima de uma
+> fatia da base, sem avisar. Isso foi medido ao vivo em 03/09/2026 — no mesmo
+> instante o `gviz` devolveu **4 vagas** e o `export` devolveu **1.163**.
+> O `export` ignora filtros e é a única fonte correta.
 
 > [!IMPORTANT]
 > Para isso funcionar, a planilha precisa continuar compartilhada como
@@ -123,18 +131,23 @@ npm run preview
 
 ## Qualidade dos dados na planilha
 
-A leitura foi conferida contra os dois endpoints de exportação do Google e os
-dois devolvem exatamente o mesmo conteúdo: **1.194 vagas, 31 colunas**.
+Levantamento de 03/09/2026, sobre 1.162 linhas da aba. Os números mudam conforme
+a planilha é preenchida; o painel recalcula sozinho.
 
-Nessa checagem apareceram **7 linhas com as células deslocadas uma coluna à
-esquerda** a partir de *Base vagas* — o título da vaga cai em `Base vagas`, o
-status cai em `Nome do substituido` e a base vai para `Origem do candidato`.
-As primeiras são as linhas **2, 4 e 5** da aba.
+| Problema | Linhas | Efeito no painel |
+| --- | --- | --- |
+| Status **Fechada** sem *Data de Fechamento da vaga* | 389 | não entram em "Fechamentos"; se abertas em 2025, saem do recorte |
+| — dessas, sem *Data de início* também | 320 | irrecuperáveis: não há como datar o fechamento |
+| Status em branco | 5 | linhas 955, 1151, 1153, 1162, 1163 — não contam como aberta nem fechada |
+| *Data de Fechamento* anterior à abertura | 2 | linhas 447 e 914 — tratadas como sem data |
 
-O painel lê essas linhas como “status vazio”, então elas não entram nas contas de
-abertas nem de fechadas. Isso **não é efeito da migração** — a versão do Lovable
-lia a mesma planilha e enxergava o mesmo desalinhamento. Corrigir na planilha faz
-os números fecharem, e nada precisa mudar no código.
+O item de cima é o que mais afasta o painel da planilha: são **33% de todas as
+vagas fechadas**. Enquanto essas datas não forem preenchidas, "Fechamentos
+datados" fica estruturalmente abaixo do total de *Fechada* da aba — e isso é
+preenchimento, não cálculo.
+
+O desalinhamento de colunas relatado na migração (título da vaga em `Base vagas`,
+status em `Nome do substituido`) **não existe mais** na leitura de 03/09/2026.
 
 ---
 

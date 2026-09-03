@@ -100,20 +100,31 @@ const agrupa = (list: Vaga[], fn: (r: Vaga) => string): [string, number][] => {
   return [...m.entries()].sort((a, b) => b[1] - a[1]);
 };
 
-/** Fora do escopo 2026: vagas abertas e fechadas dentro de 2025. */
-export function noEscopo(rows: Vaga[]): Vaga[] {
+/**
+ * Anula os fechamentos impossíveis (anteriores à abertura ou no futuro), sem
+ * descartar linha nenhuma.
+ *
+ * Serve de base para duas leituras diferentes: o recorte 2026 (noEscopo) e a
+ * qualidade do preenchimento, que precisa enxergar a planilha inteira — inclusive
+ * as linhas que o recorte deixa de fora. Contar buracos só dentro do recorte
+ * esconde justamente as linhas que ficaram de fora por causa dos buracos.
+ */
+export function normalizaFechamento(rows: Vaga[]): Vaga[] {
   const hoje = new Date().toISOString().slice(0, 10);
-  return (rows || [])
-    .map((r) => {
-      if (r.df && ((r.d && r.df < r.d) || r.df > hoje))
-        return { ...r, df: null, sf: null, dfRuim: true };
-      return r;
-    })
-    .filter((r) => {
-      if (!r.d || r.d.slice(0, 4) > "2025") return true;
-      if (r.df) return r.df.slice(0, 4) >= "2026";
-      return !encerrada(r);
-    });
+  return (rows || []).map((r) => {
+    if (r.df && ((r.d && r.df < r.d) || r.df > hoje))
+      return { ...r, df: null, sf: null, dfRuim: true };
+    return r;
+  });
+}
+
+/** Fora do escopo 2026: vagas abertas em 2025 que não alcançaram 2026. */
+export function noEscopo(rows: Vaga[]): Vaga[] {
+  return normalizaFechamento(rows).filter((r) => {
+    if (!r.d || r.d.slice(0, 4) > "2025") return true;
+    if (r.df) return r.df.slice(0, 4) >= "2026";
+    return !encerrada(r);
+  });
 }
 
 export function mesesDe(rows: Vaga[]) {
@@ -160,6 +171,9 @@ const fimDoMes = (m: string) => {
 
 export function buildAnalytics(allRows: Vaga[], selMesIn: string, meta = META_SLA) {
   const rows = noEscopo(allRows);
+  // Planilha inteira, sem o recorte 2026: é sobre ela que a tabela de qualidade
+  // do preenchimento precisa falar.
+  const todas = normalizaFechamento(allRows);
   const meses = mesesDe(rows);
   const lastMes = meses.length ? meses[meses.length - 1]! : "";
   const selMes = selMesIn && meses.indexOf(selMesIn) > -1 ? selMesIn : mesPadrao(rows);
@@ -187,7 +201,10 @@ export function buildAnalytics(allRows: Vaga[], selMesIn: string, meta = META_SL
     (r) => dentro(r.d && r.d.slice(0, 7)) || dentro(r.df && r.df.slice(0, 7)),
   );
   const foraEscopo = allRows.length - noEixo.length;
-  const fechadasSemData = noEixo.filter((r) => fechada(r) && !r.df).length;
+  // Contado sobre a planilha inteira, e não sobre o recorte: as linhas que o
+  // recorte descarta são, em boa parte, justamente as que estão sem data de
+  // fechamento. Medir só dentro do recorte reportava 69 quando o real era 389.
+  const fechadasSemData = todas.filter((r) => fechada(r) && !r.df).length;
   const abertasHoje = noEixo.filter(aberta);
   const standBy = noEixo.filter((r) => /stand|suspens/i.test(r.st || "")).length;
   const canceladas = noEixo.filter((r) => /cancel|desist/i.test(r.st || "")).length;
@@ -547,9 +564,9 @@ export function buildAnalytics(allRows: Vaga[], selMesIn: string, meta = META_SL
   const cons: [string, number, number, string][] = [
     [
       "Data de fechamento",
-      noEixo.filter((r) => fechada(r) && !r.df).length,
-      noEixo.filter(fechada).length,
-      "sem ela a vaga não entra no fechamento do mês",
+      todas.filter((r) => fechada(r) && !r.df).length,
+      todas.filter(fechada).length,
+      "sem ela a vaga não entra no mês e pode cair fora do recorte",
     ],
     [
       "Modelo de contratação",
@@ -571,14 +588,14 @@ export function buildAnalytics(allRows: Vaga[], selMesIn: string, meta = META_SL
     ],
     [
       "Origem do candidato",
-      noEixo.filter((r) => r.df && r.o === "Não informado").length,
-      noEixo.filter((r) => r.df).length,
+      todas.filter((r) => r.df && r.o === "Não informado").length,
+      todas.filter((r) => r.df).length,
       "mede eficiência dos canais",
     ],
     [
       "Data de fechamento inconsistente",
-      noEixo.filter((r) => r.dfRuim).length,
-      noEixo.filter(fechada).length,
+      todas.filter((r) => r.dfRuim).length,
+      todas.filter(fechada).length,
       "anterior à abertura ou no futuro — tratada como sem data",
     ],
   ];
@@ -594,9 +611,12 @@ export function buildAnalytics(allRows: Vaga[], selMesIn: string, meta = META_SL
     meses,
     selMes,
     prevMes,
+    // Mostra a conta fechando com a planilha: total na aba, o que entrou no
+    // recorte e o que ficou de fora. Antes dizia "abertas e fechadas em 2025",
+    // o que a planilha não sustenta: essas vagas não têm data de fechamento.
     subtitle:
-      `${nf(noEixo.length)} vagas no escopo 2026 · ${mesLongo(meses[0] || "")} a ${mesLongo(lastMes)}` +
-      (foraEscopo ? ` · ${nf(foraEscopo)} abertas e fechadas em 2025 fora do recorte` : ""),
+      `${nf(noEixo.length)} vagas no escopo 2026 de ${nf(allRows.length)} na aba Vagas 2026 · ${mesLongo(meses[0] || "")} a ${mesLongo(lastMes)}` +
+      (foraEscopo ? ` · ${nf(foraEscopo)} abertas em 2025 fora do recorte` : ""),
     kpisAcum,
     kpisMes,
     kpisAtual,
