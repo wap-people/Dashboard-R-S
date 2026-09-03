@@ -442,7 +442,7 @@ export default function Dashboard() {
             </Card>
 
             <Card
-              title="Backlog no fim de cada mês"
+              title="Vagas em aberto no fim de cada mês"
               subtitle="vagas que seguiram abertas ao virar o mês"
               delay={0.15}
             >
@@ -481,7 +481,7 @@ export default function Dashboard() {
                 style={{ gridTemplateColumns: tblCols }}
               >
                 <span className="px-[14px] py-[10px]">Mês</span>
-                {["Aberturas", "Fechamentos", "Saldo", "Atendimento", "Backlog no fim", "SLA médio"].map(
+                {["Aberturas", "Fechamentos", "Saldo", "Atendimento", "Em aberto no fim", "SLA médio"].map(
                   (h) => (
                     <span key={h} className="px-[14px] py-[10px] text-right">
                       {h}
@@ -669,6 +669,41 @@ export default function Dashboard() {
 
       {view === "atual" && (
         <>
+          <div className="mt-[18px] flex flex-wrap items-baseline justify-between gap-3">
+            <h2 className="text-[15px] font-bold tracking-[-0.02em]">
+              Vagas em aberto por unidade
+            </h2>
+            <span className="text-[11px] font-medium text-subtle">
+              status Aberta na base atual
+            </span>
+          </div>
+          {/* flex-wrap em vez de grid: o número de unidades varia conforme a
+              planilha, e numa grade de N colunas as sobras viravam blocos cinza
+              vazios no fim da linha. Com grow + basis os cartões esticam para
+              fechar a linha em qualquer quantidade. */}
+          <section className="mt-[10px] flex flex-wrap gap-px overflow-hidden rounded-sm border border-border bg-border">
+            {a.unidadeTiles.map((u, i) => (
+              <div
+                key={u.label}
+                className="wap-rise flex min-h-[92px] grow basis-[150px] flex-col gap-2 bg-card p-[14px_14px_12px] md:p-[16px_16px_14px]"
+                style={{ animationDelay: `${i * 0.04}s` }}
+              >
+                <span className="text-[10px] leading-[1.3] font-bold tracking-[.08em] text-muted-foreground uppercase">
+                  {u.label}
+                </span>
+                <span className="text-[22px] leading-none font-black tracking-[-0.04em] md:text-[26px]">
+                  {u.total}
+                  <span className="ml-[5px] text-[11px] font-semibold tracking-[-0.01em] text-subtle">
+                    vagas
+                  </span>
+                </span>
+                <span className="mt-auto text-[11px] font-medium tracking-[-0.01em] text-subtle">
+                  {u.pct} do total
+                </span>
+              </div>
+            ))}
+          </section>
+
           <div className="mt-[14px] grid gap-[14px] xl:grid-cols-3">
             <Card
               title="Vagas abertas hoje por área"
@@ -741,7 +776,7 @@ export default function Dashboard() {
 
           <div className="mt-[14px] grid gap-[14px] md:grid-cols-2 xl:grid-cols-3">
             <Card
-              title="Aging do backlog"
+              title="Tempo das vagas em aberto"
               subtitle="dias corridos em aberto · meta 25 dias"
               delay={0.2}
             >
@@ -749,7 +784,7 @@ export default function Dashboard() {
             </Card>
 
             <Card
-              title="Composição do backlog"
+              title="Composição das vagas em aberto"
               subtitle={`duas leituras das mesmas ${a.atualAbertas} vagas abertas`}
               delay={0.25}
             >

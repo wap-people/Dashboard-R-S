@@ -111,7 +111,7 @@ npm run preview
 | Arquivo | O que é |
 | --- | --- |
 | `src/App.tsx` | A tela inteira: cabeçalho, abas, cartões, tabelas e o modal de importar |
-| `src/lib/rs-analytics.ts` | Todos os cálculos (KPIs, backlog, SLA, aging) e o leitor da planilha colada |
+| `src/lib/rs-analytics.ts` | Todos os cálculos (KPIs, vagas em aberto, SLA, aging) e o leitor da planilha colada |
 | `src/lib/sheets.ts` | Busca a planilha no Google e converte o CSV |
 | `src/styles.css` | Cores, tipografia e animações (design system) |
 | `src/data/vagas.json` | Retrato da base usado só enquanto o Google responde |

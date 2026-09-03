@@ -317,7 +317,7 @@ export function buildAnalytics(allRows: Vaga[], selMesIn: string, meta = META_SL
       label: "Prioridade A",
       value: nf(prioA),
       unit: "vagas",
-      hint: `${pct(prioA, abertasHoje.length)} do backlog`,
+      hint: `${pct(prioA, abertasHoje.length)} das vagas em aberto`,
       alert: false,
     },
     {
@@ -398,12 +398,12 @@ export function buildAnalytics(allRows: Vaga[], selMesIn: string, meta = META_SL
       cur.ab.length - cur.fe.length,
       prev ? prev.ab.length - prev.fe.length : null,
       "abs",
-      "positivo aumenta o backlog",
+      "positivo aumenta as vagas em aberto",
     ),
     cmp("Taxa de atendimento", taxaOf(cur), taxaOf(prev), "pp", "fechamentos sobre aberturas"),
     cmp("Fechadas no próprio mês", mixOf(cur), mixOf(prev), "pp", "agilidade do ciclo"),
     cmp(
-      "Backlog no fim do mês",
+      "Vagas em aberto no fim do mês",
       cur.backlog.length,
       prev ? prev.backlog.length : null,
       "n",
@@ -471,6 +471,14 @@ export function buildAnalytics(allRows: Vaga[], selMesIn: string, meta = META_SL
     total: nf(v),
     w: ((v / areaMax) * 100).toFixed(2) + "%",
     color: i === 0 ? INK : i < 3 ? MID : SOFT,
+  }));
+
+  // Contador das vagas em aberto por unidade. group() já devolve ordenado da
+  // maior para a menor, então a leitura começa pela unidade mais pressionada.
+  const unidadeTiles = group(abertasHoje, "u").map(([label, list]) => ({
+    label,
+    total: nf(list.length),
+    pct: pct(list.length, abertasHoje.length),
   }));
 
   const tipoPairs = agrupa(abertasHoje, (r) =>
@@ -572,7 +580,7 @@ export function buildAnalytics(allRows: Vaga[], selMesIn: string, meta = META_SL
       "Modelo de contratação",
       abertasHoje.filter((r) => r.m === "Não informado").length,
       abertasHoje.length,
-      "impede ler CLT, temporário e PJ do backlog",
+      "impede ler CLT, temporário e PJ das vagas em aberto",
     ],
     [
       "Base da vaga",
@@ -646,6 +654,7 @@ export function buildAnalytics(allRows: Vaga[], selMesIn: string, meta = META_SL
     destinoBars,
     atualAbertas: nf(abertasHoje.length),
     areaBars,
+    unidadeTiles,
     tipoRows,
     tipoDonut,
     agingBars,
