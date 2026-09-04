@@ -926,11 +926,15 @@ export default function Dashboard() {
 
       <footer className="mt-5 flex flex-col items-baseline justify-between gap-[6px] text-[11px] font-medium tracking-[-0.01em] text-faint md:flex-row md:gap-6">
         <span>{sincronizando ? "Lendo a planilha…" : fonte} · meta de SLA 25 dias</span>
+        {/* Nada sobre a atualização automática aqui: quando ela está funcionando,
+            explicá-la é ruído em toda visita — o horário no canto esquerdo já
+            mostra que a leitura é recente. O aviso abaixo só aparece no modo
+            manual, em que o painel de fato não está mais se atualizando. */}
         <span>
-          Fonte oficial: Google Sheets “FAROL DE VAGAS 2026 WAP”, aba Vagas 2026 —{" "}
+          Fonte oficial: Google Sheets “FAROL DE VAGAS 2026 WAP”, aba Vagas 2026.
           {modoManual
-            ? "atualização automática pausada pela importação manual; use Restaurar base para religar."
-            : "o painel relê a planilha sozinho a cada 5 minutos e ao voltar para esta aba."}
+            ? " Atualização automática pausada pela importação manual — use Restaurar base para religar."
+            : ""}
         </span>
       </footer>
 

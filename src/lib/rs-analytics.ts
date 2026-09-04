@@ -82,22 +82,59 @@ const mediana = (v: (number | null)[]) => {
   return x.length % 2 ? x[(x.length - 1) / 2]! : (x[x.length / 2 - 1]! + x[x.length / 2]!) / 2;
 };
 
+/**
+ * Chave de equivalência: ignora caixa, acento e espaço.
+ *
+ * A planilha é digitada à mão, então a mesma categoria aparece escrita de mais de
+ * um jeito — "Adm/Corp" (33 linhas) e "ADM/Corp" (1 linha) eram a mesma base
+ * rendendo duas barras. Agrupar pela grafia crua divide o grupo; agrupar por esta
+ * chave junta.
+ */
+const chaveEquivalente = (s: string) =>
+  String(s)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/\s+/g, "");
+
+/**
+ * Rótulo do grupo: a grafia que mais aparece.
+ *
+ * Escolher a predominante em vez de inventar uma padronização evita estragar
+ * siglas legítimas (title-case transformaria "TI" em "Ti") e mantém na tela um
+ * texto que existe de fato na planilha.
+ */
+const grafiaDominante = (grafias: Map<string, number>) =>
+  [...grafias.entries()].sort((a, b) => b[1] - a[1])[0]![0];
+
 const group = (rows: Vaga[], key: keyof Vaga): [string, Vaga[]][] => {
-  const m = new Map<string, Vaga[]>();
+  const m = new Map<string, { grafias: Map<string, number>; rows: Vaga[] }>();
   rows.forEach((r) => {
-    const k = (r[key] as string) || "—";
-    if (!m.has(k)) m.set(k, []);
-    m.get(k)!.push(r);
+    const bruto = (r[key] as string) || "—";
+    const k = chaveEquivalente(bruto);
+    if (!m.has(k)) m.set(k, { grafias: new Map(), rows: [] });
+    const g = m.get(k)!;
+    g.grafias.set(bruto, (g.grafias.get(bruto) || 0) + 1);
+    g.rows.push(r);
   });
-  return [...m.entries()].sort((a, b) => b[1].length - a[1].length);
+  return [...m.values()]
+    .map((g) => [grafiaDominante(g.grafias), g.rows] as [string, Vaga[]])
+    .sort((a, b) => b[1].length - a[1].length);
 };
+
 const agrupa = (list: Vaga[], fn: (r: Vaga) => string): [string, number][] => {
-  const m = new Map<string, number>();
+  const m = new Map<string, { grafias: Map<string, number>; total: number }>();
   list.forEach((r) => {
-    const k = fn(r);
-    m.set(k, (m.get(k) || 0) + 1);
+    const bruto = fn(r);
+    const k = chaveEquivalente(bruto);
+    if (!m.has(k)) m.set(k, { grafias: new Map(), total: 0 });
+    const g = m.get(k)!;
+    g.grafias.set(bruto, (g.grafias.get(bruto) || 0) + 1);
+    g.total++;
   });
-  return [...m.entries()].sort((a, b) => b[1] - a[1]);
+  return [...m.values()]
+    .map((g) => [grafiaDominante(g.grafias), g.total] as [string, number])
+    .sort((a, b) => b[1] - a[1]);
 };
 
 /**
