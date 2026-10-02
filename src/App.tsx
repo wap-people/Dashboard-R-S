@@ -181,6 +181,7 @@ export default function Dashboard() {
   const [view, setView] = useState<View>("acum");
   // Unidade escolhida nos cartões do Cenário atual (chave de equivalência).
   const [filtroUnidade, setFiltroUnidade] = useState<string | null>(null);
+  const [filtroRecrutador, setFiltroRecrutador] = useState<string | null>(null);
   const [selMes, setSelMes] = useState("");
   const [showImport, setShowImport] = useState(false);
   const [pasteText, setPasteText] = useState("");
@@ -362,9 +363,15 @@ export default function Dashboard() {
   // Se a unidade filtrada sumir da base numa releitura, a lista volta a mostrar
   // tudo em vez de ficar vazia sem explicação.
   const unidadeFiltrada = a.unidadeTiles.find((u) => u.chave === filtroUnidade) ?? null;
-  const listaVisivel = unidadeFiltrada
-    ? a.listaAbertas.filter((v) => v.chaveUnidade === unidadeFiltrada.chave)
-    : a.listaAbertas;
+  const recrutadorFiltrado =
+    a.recrutadorTiles.find((r) => r.chave === filtroRecrutador) ?? null;
+  // Os dois filtros se somam: Wap Serra + Angélica mostra só as vagas dela lá.
+  const listaVisivel = a.listaAbertas.filter(
+    (v) =>
+      (!unidadeFiltrada || v.chaveUnidade === unidadeFiltrada.chave) &&
+      (!recrutadorFiltrado || v.chaveRecrutador === recrutadorFiltrado.chave),
+  );
+  const filtrosAtivos = [unidadeFiltrada?.label, recrutadorFiltrado?.label].filter(Boolean);
 
   return (
     <main className="mx-auto min-h-screen max-w-[1680px] px-[14px] pt-4 pb-12 text-foreground md:px-8 md:pt-7 md:pb-16">
@@ -803,17 +810,63 @@ export default function Dashboard() {
             ))}
           </section>
 
+          <div className="mt-[18px] flex flex-wrap items-baseline justify-between gap-3">
+            <h2 className="text-[15px] font-bold tracking-[-0.02em]">
+              Vagas em aberto por recrutador
+            </h2>
+            <span className="no-print text-[11px] font-medium text-subtle">
+              clique no recrutador para filtrar a lista abaixo
+            </span>
+          </div>
+          <section className="mt-[10px] flex flex-wrap gap-px overflow-hidden rounded-sm border border-border bg-border">
+            {a.recrutadorTiles.map((r, i) => (
+              <button
+                key={r.chave}
+                type="button"
+                aria-pressed={recrutadorFiltrado?.chave === r.chave}
+                onClick={() =>
+                  setFiltroRecrutador((atual) => (atual === r.chave ? null : r.chave))
+                }
+                className={`wap-rise flex min-h-[92px] grow basis-[150px] cursor-pointer flex-col gap-2 p-[14px_14px_12px] text-left transition-colors md:p-[16px_16px_14px] ${
+                  recrutadorFiltrado?.chave === r.chave
+                    ? "bg-surface-alt shadow-[inset_0_-3px_0_var(--ink)]"
+                    : "bg-card hover:bg-surface-alt"
+                }`}
+                style={{ animationDelay: `${i * 0.04}s` }}
+              >
+                <span className="text-[10px] leading-[1.3] font-bold tracking-[.08em] text-muted-foreground uppercase">
+                  {r.label}
+                </span>
+                <span className="text-[22px] leading-none font-black tracking-[-0.04em] md:text-[26px]">
+                  {r.total}
+                  <span className="ml-[5px] text-[11px] font-semibold tracking-[-0.01em] text-subtle">
+                    vagas
+                  </span>
+                </span>
+                <span className="mt-auto text-[11px] font-medium tracking-[-0.01em] text-subtle">
+                  <span className={r.alerta ? "font-semibold text-accent" : ""}>
+                    {r.mediaDias} em média
+                  </span>{" "}
+                  · {r.acima} acima de 25d
+                </span>
+              </button>
+            ))}
+          </section>
+
           <TableCard
-            title={`Vagas em aberto${unidadeFiltrada ? ` · ${unidadeFiltrada.label}` : ""}`}
+            title={`Vagas em aberto${filtrosAtivos.length ? ` · ${filtrosAtivos.join(" · ")}` : ""}`}
             subtitle={`da mais antiga para a mais nova · em azul, acima da meta de 25 dias`}
             delay={0.05}
             aside={
               <span className="flex items-baseline gap-3 text-[11px] font-medium text-subtle">
                 {listaVisivel.length} {listaVisivel.length === 1 ? "vaga" : "vagas"}
-                {unidadeFiltrada && (
+                {filtrosAtivos.length > 0 && (
                   <button
                     type="button"
-                    onClick={() => setFiltroUnidade(null)}
+                    onClick={() => {
+                      setFiltroUnidade(null);
+                      setFiltroRecrutador(null);
+                    }}
                     className="no-print font-semibold text-foreground underline underline-offset-2"
                   >
                     mostrar todas
@@ -880,7 +933,9 @@ export default function Dashboard() {
                 ))}
                 {listaVisivel.length === 0 && (
                   <p className="px-[14px] py-6 text-center text-[12px] text-subtle">
-                    Nenhuma vaga em aberto na base.
+                    {filtrosAtivos.length
+                      ? `Nenhuma vaga em aberto para ${filtrosAtivos.join(" + ")}.`
+                      : "Nenhuma vaga em aberto na base."}
                   </p>
                 )}
               </div>

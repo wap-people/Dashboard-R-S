@@ -571,6 +571,22 @@ export function buildAnalytics(
     pct: pct(list.length, abertasHoje.length),
   }));
 
+  // Carteira de cada recrutador: quantas vagas em aberto, há quanto tempo em
+  // média e quantas já passaram da meta — a leitura de carga de trabalho.
+  const recrutadorTiles = group(abertasHoje, "r").map(([label, list]) => {
+    const dias = list.map(diasEmAberto);
+    const med = media(dias);
+    const acima = dias.filter((d) => d !== null && d > meta).length;
+    return {
+      label: label === "—" ? "Sem recrutador" : label,
+      chave: chaveEquivalente(label),
+      total: nf(list.length),
+      mediaDias: med === null ? "—" : Math.round(med) + "d",
+      acima: nf(acima),
+      alerta: med !== null && med > meta,
+    };
+  });
+
   // Lista nominal das vagas em aberto, da mais antiga para a mais nova — quem
   // está há mais tempo esperando aparece primeiro.
   const dataBr = (iso: string | null) =>
@@ -581,6 +597,7 @@ export function buildAnalytics(
     .map(({ r, dias }) => ({
       id: r.id,
       chaveUnidade: chaveEquivalente(r.u),
+      chaveRecrutador: chaveEquivalente(r.r),
       vaga: r.v,
       area: r.a,
       unidade: r.u,
@@ -833,6 +850,7 @@ export function buildAnalytics(
     atualAbertas: nf(abertasHoje.length),
     areaBars,
     unidadeTiles,
+    recrutadorTiles,
     listaAbertas,
     tipoRows,
     tipoDonut,
