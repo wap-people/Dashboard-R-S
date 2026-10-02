@@ -1,4 +1,4 @@
-import { parsePlanilha, type Vaga } from "@/lib/rs-analytics";
+import { parsePlanilha, type Colunas, type Vaga } from "@/lib/rs-analytics";
 
 /**
  * Leitura da planilha oficial direto do navegador.
@@ -139,7 +139,11 @@ async function baixarCsv(): Promise<string> {
   return csv;
 }
 
-export async function fetchVagasFromSheet(): Promise<{ rows: Vaga[]; ignoradas: number }> {
+export async function fetchVagasFromSheet(): Promise<{
+  rows: Vaga[];
+  ignoradas: number;
+  colunas: Colunas;
+}> {
   const csv = await baixarCsv();
 
   const values = parseCsv(csv);
@@ -154,11 +158,10 @@ export async function fetchVagasFromSheet(): Promise<{ rows: Vaga[]; ignoradas: 
   const parsed = parsePlanilha(tsv);
   if (!parsed.ok) throw new Error(parsed.msg);
 
-  return { rows: parsed.rows, ignoradas: parsed.ignoradas };
+  return { rows: parsed.rows, ignoradas: parsed.ignoradas, colunas: parsed.colunas };
 }
 
-/** Mesma assinatura da server function do Lovable, para o componente não mudar. */
 export async function getVagasFromSheet() {
-  const { rows, ignoradas } = await fetchVagasFromSheet();
-  return { rows, ignoradas, carregadoEm: new Date().toISOString() };
+  const { rows, ignoradas, colunas } = await fetchVagasFromSheet();
+  return { rows, ignoradas, colunas, carregadoEm: new Date().toISOString() };
 }

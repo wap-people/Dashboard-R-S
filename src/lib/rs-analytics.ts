@@ -17,9 +17,32 @@ export type Vaga = {
   sa: number | null;
   sf: number | null;
   dfRuim?: boolean;
+  /** Status exatamente como está na planilha (st pode ter sido ajustado). */
+  stOrig?: string;
+  /** Por que st difere de stOrig, quando difere. */
+  ajuste?: "fechada-pela-data" | "vazio-aberta" | "vazio-fechada";
+  /** Fechamento estimado pela data de admissão (a Data Fechamento estava vazia). */
+  dfEst?: boolean;
+  /** Coluna "Contratado" preenchida. */
+  ct?: boolean;
 };
 
 export const META_SLA = 25;
+
+/**
+ * Data de hoje no fuso de quem está olhando o painel, em AAAA-MM-DD.
+ *
+ * toISOString() devolve a data em UTC: das 21h à meia-noite no Brasil ela já é
+ * "amanhã", e o aging pulava um dia todas as noites.
+ */
+export const hojeLocal = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+
+/** Dias corridos entre duas datas AAAA-MM-DD. */
+export const diasEntre = (de: string, ate: string) =>
+  Math.round((Date.parse(ate) - Date.parse(de)) / 86400000);
 
 const MESES_CURTOS = [
   "jan",
@@ -68,9 +91,13 @@ export const fmt = (v: number | null, suf = "") =>
     : Number(v).toLocaleString("pt-BR", { maximumFractionDigits: 1 }) + suf;
 export const pct = (a: number, b: number) => (b ? Math.round((a / b) * 100) + "%" : "—");
 
-const aberta = (r: Vaga) => /abert/i.test(r.st || "");
 const fechada = (r: Vaga) => /fechad/i.test(r.st || "");
 const encerrada = (r: Vaga) => /fechad|cancel|desist/i.test(r.st || "");
+const pausada = (r: Vaga) => /stand|suspens/i.test(r.st || "");
+// Aberta é tudo o que não terminou nem está pausado. Antes exigia a palavra
+// "Aberta" escrita no status; qualquer variação ("Em andamento", "Em aberto")
+// fazia a vaga sumir da contagem.
+const aberta = (r: Vaga) => !encerrada(r) && !pausada(r);
 
 const media = (v: (number | null)[]) => {
   const x = v.filter((n): n is number => typeof n === "number" && !isNaN(n));
@@ -147,7 +174,7 @@ const agrupa = (list: Vaga[], fn: (r: Vaga) => string): [string, number][] => {
  * esconde justamente as linhas que ficaram de fora por causa dos buracos.
  */
 export function normalizaFechamento(rows: Vaga[]): Vaga[] {
-  const hoje = new Date().toISOString().slice(0, 10);
+  const hoje = hojeLocal();
   return (rows || []).map((r) => {
     if (r.df && ((r.d && r.df < r.d) || r.df > hoje))
       return { ...r, df: null, sf: null, dfRuim: true };
@@ -206,7 +233,21 @@ const fimDoMes = (m: string) => {
   return new Date(Date.UTC(+p[0]!, +p[1]!, 0)).toISOString().slice(0, 10);
 };
 
-export function buildAnalytics(allRows: Vaga[], selMesIn: string, meta = META_SLA) {
+export function buildAnalytics(
+  allRows: Vaga[],
+  selMesIn: string,
+  meta = META_SLA,
+  /** Cabeçalho encontrado para cada campo (null = coluna não achada). */
+  colunas?: Colunas | null,
+) {
+  const hoje = hojeLocal();
+  // Aging calculado aqui, de Data Abertura até hoje — não lido da planilha. A
+  // coluna "SLA" da aba depende de fórmula e estava em branco em 1.170 de 1.188
+  // linhas; onde estava preenchida, este cálculo dá exatamente o mesmo número.
+  const diasEmAberto = (r: Vaga) => (r.d ? Math.max(0, diasEntre(r.d, hoje)) : null);
+  // Nome da coluna como está na planilha hoje, para a tabela de qualidade falar a
+  // mesma língua da aba (e acompanhar se alguém renomear de novo).
+  const nome = (c: Campo) => colunas?.[c] || CAMPOS.find((x) => x.campo === c)!.rotulo;
   const rows = noEscopo(allRows);
   // Planilha inteira, sem o recorte 2026: é sobre ela que a tabela de qualidade
   // do preenchimento precisa falar.
@@ -220,7 +261,9 @@ export function buildAnalytics(allRows: Vaga[], selMesIn: string, meta = META_SL
   const stats = (m: string) => {
     const fim = fimDoMes(m);
     const ab = rows.filter((r) => r.d && r.d.slice(0, 7) === m);
-    const fe = rows.filter((r) => r.df && r.df.slice(0, 7) === m);
+    // Só vaga fechada conta como fechamento. Cancelada com data marca quando
+    // deixou de estar aberta (vale para o "em aberto no fim"), não uma entrega.
+    const fe = rows.filter((r) => r.df && fechada(r) && r.df.slice(0, 7) === m);
     const doMes = fe.filter((r) => r.d && r.d.slice(0, 7) === m);
     const backlog = rows.filter(
       (r) => r.d && r.d <= fim && ((r.df && r.df > fim) || (!r.df && !encerrada(r))),
@@ -242,8 +285,11 @@ export function buildAnalytics(allRows: Vaga[], selMesIn: string, meta = META_SL
   // recorte descarta são, em boa parte, justamente as que estão sem data de
   // fechamento. Medir só dentro do recorte reportava 69 quando o real era 389.
   const fechadasSemData = todas.filter((r) => fechada(r) && !r.df).length;
+  // Fechadas sem Data Fechamento, mas com Admissão: entram no mês pela admissão,
+  // porém ficam fora do SLA — a admissão vem depois do aceite e inflaria o prazo.
+  const fechadasEstimadas = todas.filter((r) => fechada(r) && r.dfEst).length;
   const abertasHoje = noEixo.filter(aberta);
-  const standBy = noEixo.filter((r) => /stand|suspens/i.test(r.st || "")).length;
+  const standBy = noEixo.filter(pausada).length;
   const canceladas = noEixo.filter((r) => /cancel|desist/i.test(r.st || "")).length;
   const slaGeral = media(noEixo.filter((r) => dentro(r.df && r.df.slice(0, 7))).map((r) => r.sf));
 
@@ -267,7 +313,9 @@ export function buildAnalytics(allRows: Vaga[], selMesIn: string, meta = META_SL
       label: "Fechamentos datados",
       value: nf(totFeN),
       unit: "vagas",
-      hint: `${fechadasSemData} fechadas sem data na planilha`,
+      hint:
+        `${nf(fechadasSemData)} fechadas sem data` +
+        (fechadasEstimadas ? ` · ${nf(fechadasEstimadas)} datadas pela admissão` : ""),
       alert: false,
     },
     {
@@ -325,22 +373,22 @@ export function buildAnalytics(allRows: Vaga[], selMesIn: string, meta = META_SL
     },
   ];
 
-  const agingMedio = media(abertasHoje.map((r) => r.sa));
-  const foraMeta = abertasHoje.filter((r) => typeof r.sa === "number" && r.sa > meta).length;
+  const agingMedio = media(abertasHoje.map(diasEmAberto));
+  const foraMeta = abertasHoje.filter((r) => (diasEmAberto(r) ?? -1) > meta).length;
   const prioA = abertasHoje.filter((r) => r.pr === "A").length;
   const kpisAtual = [
     {
       label: "Vagas abertas hoje",
       value: nf(abertasHoje.length),
       unit: "vagas",
-      hint: "status Aberta na base",
+      hint: "status conferido pela Data Fechamento",
       alert: false,
     },
     {
       label: "Aging médio",
       value: agingMedio === null ? "—" : Math.round(agingMedio) + "d",
       unit: "",
-      hint: "dias corridos em aberto",
+      hint: "dias corridos desde a abertura",
       alert: agingMedio !== null && agingMedio > meta,
     },
     {
@@ -542,16 +590,16 @@ export function buildAnalytics(allRows: Vaga[], selMesIn: string, meta = META_SL
   const tipoDonut = `conic-gradient(from -90deg, ${stops.join(", ")})`;
 
   const buckets: [string, (r: Vaga) => boolean][] = [
-    ["0 a 15 dias", (r) => (r.sa as number) <= 15],
-    ["16 a 30 dias", (r) => (r.sa as number) > 15 && (r.sa as number) <= 30],
-    ["31 a 60 dias", (r) => (r.sa as number) > 30 && (r.sa as number) <= 60],
-    ["mais de 60 dias", (r) => (r.sa as number) > 60],
+    ["0 a 15 dias", (r) => diasEmAberto(r)! <= 15],
+    ["16 a 30 dias", (r) => diasEmAberto(r)! > 15 && diasEmAberto(r)! <= 30],
+    ["31 a 60 dias", (r) => diasEmAberto(r)! > 30 && diasEmAberto(r)! <= 60],
+    ["mais de 60 dias", (r) => diasEmAberto(r)! > 60],
   ];
   const agingVals: [string, number][] = buckets.map(([label, f]) => [
     label,
-    abertasHoje.filter((r) => typeof r.sa === "number" && f(r)).length,
+    abertasHoje.filter((r) => diasEmAberto(r) !== null && f(r)).length,
   ]);
-  const semAging = abertasHoje.filter((r) => typeof r.sa !== "number").length;
+  const semAging = abertasHoje.filter((r) => diasEmAberto(r) === null).length;
   if (semAging) agingVals.push(["sem data", semAging]);
   const agingMax = Math.max(1, ...agingVals.map((v) => v[1]));
   const agingBars = agingVals.map(([label, v], i) => ({
@@ -606,44 +654,101 @@ export function buildAnalytics(allRows: Vaga[], selMesIn: string, meta = META_SL
     ? `Maior ciclo registrado: ${pior.a} com ${pior.sf} dias, em ${pior.u}.`
     : "";
 
-  const cons: [string, number, number, string][] = [
+  // ---- Varredura de qualidade do preenchimento -----------------------------
+  // Sempre sobre a aba inteira (todas), salvo quando o campo só faz sentido para
+  // as vagas em aberto. Os rótulos usam o nome atual da coluna na planilha.
+  const stOrig = (r: Vaga) => r.stOrig ?? r.st;
+  const fechadasTodas = todas.filter(fechada);
+  const semDfReal = fechadasTodas.filter((r) => !r.df || r.dfEst);
+  const ausentes = colunas ? CAMPOS.filter((c) => !colunas[c.campo]) : [];
+  // Universo do "status desatualizado": o que a planilha diz estar em andamento
+  // (qualquer status preenchido que não seja de encerramento ou pausa).
+  const marcadasAbertas = todas.filter((r) => {
+    const s = stOrig(r);
+    return !!s && !/fechad|cancel|desist|stand|suspens/i.test(s);
+  });
+  const comContratado = todas.filter((r) => r.ct);
+
+  const cons: [string, number, number, string][] = [];
+  if (colunas)
+    cons.push([
+      "Colunas do painel não achadas na planilha",
+      ausentes.length,
+      CAMPOS.length,
+      ausentes.length
+        ? `faltam: ${ausentes.map((c) => c.rotulo).join(", ")} — cabeçalho renomeado?`
+        : "todas as colunas usadas pelo painel foram encontradas",
+    ]);
+  cons.push(
     [
-      "Data de fechamento",
-      todas.filter((r) => fechada(r) && !r.df).length,
-      todas.filter(fechada).length,
-      "sem ela a vaga não entra no mês e pode cair fora do recorte",
+      nome("d"),
+      todas.filter((r) => !r.d).length,
+      todas.length,
+      "sem ela a vaga não entra em mês nenhum e o aging não é calculado",
     ],
     [
-      "Modelo de contratação",
+      `${nome("df")} em vaga fechada`,
+      semDfReal.length,
+      fechadasTodas.length,
+      fechadasEstimadas
+        ? `${nf(fechadasEstimadas)} datadas pela ${nome("adm")} (fora do SLA); ${nf(fechadasSemData)} sem data nenhuma, fora dos meses`
+        : "sem ela a vaga não entra no mês e pode cair fora do recorte",
+    ],
+    [
+      `${nome("st")} desatualizado`,
+      todas.filter((r) => r.ajuste === "fechada-pela-data").length,
+      marcadasAbertas.length,
+      "marcada Aberta mas com Data Fechamento — contada como fechada",
+    ],
+    [
+      `${nome("st")} em branco`,
+      todas.filter((r) => r.ajuste === "vazio-aberta" || r.ajuste === "vazio-fechada").length,
+      todas.length,
+      "contada como aberta, ou fechada se tiver Data Fechamento",
+    ],
+    [
+      `${nome("ct")} em vaga fechada`,
+      fechadasTodas.filter((r) => !r.ct).length,
+      fechadasTodas.length,
+      "não dá para saber quem ocupou a vaga",
+    ],
+    [
+      `${nome("ct")} em vaga não fechada`,
+      comContratado.filter((r) => !fechada(r)).length,
+      comContratado.length,
+      "tem contratado mas o status é aberta, pausada ou cancelada",
+    ],
+    [
+      `${nome("df")} inconsistente`,
+      todas.filter((r) => r.dfRuim).length,
+      fechadasTodas.length,
+      "anterior à abertura ou no futuro — tratada como sem data",
+    ],
+    [
+      nome("m"),
       abertasHoje.filter((r) => r.m === "Não informado").length,
       abertasHoje.length,
       "impede ler CLT, temporário e PJ das vagas em aberto",
     ],
     [
-      "Base da vaga",
+      nome("b"),
       abertasHoje.filter((r) => r.b === "Não informado").length,
       abertasHoje.length,
       "separa operação de corporativo",
     ],
     [
-      "Prioridade",
+      nome("pr"),
       abertasHoje.filter((r) => !r.pr || r.pr === "—" || r.pr === "-").length,
       abertasHoje.length,
       "define a fila de atendimento",
     ],
     [
-      "Origem do candidato",
-      todas.filter((r) => r.df && r.o === "Não informado").length,
-      todas.filter((r) => r.df).length,
+      nome("o"),
+      fechadasTodas.filter((r) => r.df && r.o === "Não informado").length,
+      fechadasTodas.filter((r) => r.df).length,
       "mede eficiência dos canais",
     ],
-    [
-      "Data de fechamento inconsistente",
-      todas.filter((r) => r.dfRuim).length,
-      todas.filter(fechada).length,
-      "anterior à abertura ou no futuro — tratada como sem data",
-    ],
-  ];
+  );
   const consRows = cons.map(([label, faltando, universo, impacto]) => ({
     label,
     faltando: `${nf(faltando)} de ${nf(universo)}`,
@@ -669,8 +774,11 @@ export function buildAnalytics(allRows: Vaga[], selMesIn: string, meta = META_SL
     backlogBars,
     mesTable,
     acumNote: fechadasSemData
-      ? `${fechadasSemData} vagas fechadas sem data na planilha não entram na coluna de fechamentos`
+      ? `${nf(fechadasSemData)} vagas fechadas sem data na planilha não entram na coluna de fechamentos`
       : "todas as vagas fechadas têm data de fechamento",
+    // Campos que o painel procurou e não achou no cabeçalho. Vazio quando a base
+    // veio do retrato embutido (não há cabeçalho para conferir).
+    colunasAusentes: ausentes.map((c) => c.rotulo),
     totAb: nf(totAbN),
     totFe: nf(totFeN),
     totSaldo: nf(totAbN - totFeN),
@@ -708,7 +816,9 @@ export function buildAnalytics(allRows: Vaga[], selMesIn: string, meta = META_SL
 const COL_HEAD = [
   "Data abertura",
   "Data fechamento",
-  "Status",
+  "Fechamento estimado pela admissão",
+  "Status (painel)",
+  "Status (planilha)",
   "Recrutador",
   "Unidade",
   "Requisitante",
@@ -716,60 +826,109 @@ const COL_HEAD = [
   "Vaga",
   "Senioridade",
   "Tipo",
-  "Modelo",
+  "Regime",
   "Base",
   "Origem",
   "Prioridade",
   "Dias em aberto",
   "SLA fechamento",
 ];
-const COL_KEYS: (keyof Vaga)[] = [
-  "d",
-  "df",
-  "st",
-  "r",
-  "u",
-  "g",
-  "a",
-  "v",
-  "sen",
-  "t",
-  "m",
-  "b",
-  "o",
-  "pr",
-  "sa",
-  "sf",
-];
 
 export function toCsv(rows: Vaga[]) {
+  const hoje = hojeLocal();
   const esc = (v: unknown) =>
     '"' + String(v === null || v === undefined ? "" : v).replace(/"/g, '""') + '"';
-  return [COL_HEAD.join(";")]
-    .concat(noEscopo(rows).map((r) => COL_KEYS.map((k) => esc(r[k])).join(";")))
-    .join("\n");
+  const linhas = noEscopo(rows).map((r) =>
+    [
+      r.d,
+      r.df,
+      r.dfEst ? "sim" : "",
+      r.st,
+      r.stOrig ?? r.st,
+      r.r,
+      r.u,
+      r.g,
+      r.a,
+      r.v,
+      r.sen,
+      r.t,
+      r.m,
+      r.b,
+      r.o,
+      r.pr,
+      r.d && aberta(r) ? Math.max(0, diasEntre(r.d, hoje)) : "",
+      r.sf,
+    ]
+      .map(esc)
+      .join(";"),
+  );
+  return [COL_HEAD.join(";")].concat(linhas).join("\n");
 }
 
-export const COLUNAS_ESPERADAS = [
-  "Data Início processo",
-  "Recrutador",
-  "Unidade",
-  "Requisitante",
-  "Área",
-  "Prioridade",
-  "Vaga",
-  "Tipo de Vaga",
-  "Status do Processo",
-  "Modelo de contratação",
-  "Data de Fechamento da vaga",
-  "Origem do candidato",
-  "Base vagas",
-  "SLA aberto",
+// ---------------------------------------------------------------------------
+// Leitura do cabeçalho
+//
+// O painel acha cada coluna pelo nome. Em out/2026 a planilha teve cabeçalhos
+// renomeados ("Data de Fechamento da vaga" virou "Data Fechamento", "SLA aberto"
+// virou "SLA", "Modelo de contratação" virou "Regime"...) e o painel passou a
+// mostrar zero fechamentos e aging vazio sem avisar ninguém.
+//
+// Por isso cada campo aceita uma lista de nomes — o atual primeiro, depois os
+// antigos — e o resultado da busca volta junto com as linhas. Coluna não achada
+// aparece na tela como alerta, em vez de virar número zerado.
+// ---------------------------------------------------------------------------
+
+export type Campo =
+  | "d"
+  | "u"
+  | "st"
+  | "v"
+  | "r"
+  | "g"
+  | "a"
+  | "pr"
+  | "b"
+  | "sen"
+  | "t"
+  | "m"
+  | "df"
+  | "adm"
+  | "ct"
+  | "o";
+
+/** Cabeçalho encontrado na planilha para cada campo; null = não encontrado. */
+export type Colunas = Partial<Record<Campo, string | null>>;
+
+/** rotulo = nome atual na planilha; aliases = todos os nomes aceitos, em ordem. */
+export const CAMPOS: { campo: Campo; rotulo: string; aliases: string[] }[] = [
+  { campo: "d", rotulo: "Data Abertura", aliases: ["Data Abertura", "Data Início processo", "Data de abertura"] },
+  { campo: "u", rotulo: "Unidade", aliases: ["Unidade"] },
+  { campo: "st", rotulo: "Status do Processo", aliases: ["Status do Processo", "Status", "Situação", "Situação da vaga"] },
+  { campo: "v", rotulo: "Vaga", aliases: ["Vaga", "Cargo"] },
+  { campo: "r", rotulo: "Recrutador", aliases: ["Recrutador", "Recrutadora"] },
+  { campo: "g", rotulo: "Requisitante (Gestor Direto)", aliases: ["Requisitante (Gestor Direto)", "Requisitante", "Gestor"] },
+  { campo: "a", rotulo: "Área", aliases: ["Área", "Area", "Setor"] },
+  { campo: "pr", rotulo: "Prioridade", aliases: ["Prioridade"] },
+  { campo: "b", rotulo: "Base vagas", aliases: ["Base vagas", "Base"] },
+  { campo: "sen", rotulo: "Jr, Pl, Sr", aliases: ["Jr, Pl, Sr", "Senioridade", "Nível"] },
+  { campo: "t", rotulo: "Tipo de Vaga", aliases: ["Tipo de Vaga", "Tipo"] },
+  { campo: "m", rotulo: "Regime", aliases: ["Regime", "Modelo de contratação", "Modelo"] },
+  { campo: "df", rotulo: "Data Fechamento", aliases: ["Data Fechamento", "Data de Fechamento da vaga", "Data de Fechamento"] },
+  { campo: "adm", rotulo: "Admissão", aliases: ["Admissão", "Data de admissão", "Data de início", "Data de inicio"] },
+  { campo: "ct", rotulo: "Contratado", aliases: ["Contratado", "Nome candidato contratado", "Candidato contratado"] },
+  { campo: "o", rotulo: "Origem", aliases: ["Origem", "Origem do candidato"] },
 ];
+
+/** Para a lista do modal de importação: os nomes atuais. */
+export const COLUNAS_ESPERADAS = CAMPOS.map((c) => c.rotulo);
+
+const OBRIGATORIOS: Campo[] = ["u", "st"];
 
 export function parsePlanilha(
   raw: string,
-): { ok: true; rows: Vaga[]; ignoradas: number } | { ok: false; msg: string } {
+):
+  | { ok: true; rows: Vaga[]; ignoradas: number; colunas: Colunas }
+  | { ok: false; msg: string } {
   const txt = (raw || "").replace(/\r/g, "").trim();
   if (!txt) return { ok: false, msg: "Cole os dados da aba Vagas 2026 antes de atualizar." };
   const lines = txt.split("\n");
@@ -778,15 +937,16 @@ export function parsePlanilha(
     String(s)
       .toLowerCase()
       .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/\p{Diacritic}/gu, "")
       .replace(/[^a-z0-9]/g, "");
+
+  // Cabeçalho = a primeira linha (entre as 10 primeiras) que tem pelo menos três
+  // nomes de coluna conhecidos. Não depende de nenhuma coluna específica.
+  const conhecidos = new Set(CAMPOS.flatMap((c) => c.aliases.map(norm)));
   let headIdx = -1;
   for (let i = 0; i < Math.min(lines.length, 10); i++) {
     const h = lines[i]!.split(sep).map(norm);
-    if (
-      h.some((c) => c.indexOf("datainicioprocesso") > -1 || c === "unidade") &&
-      h.some((c) => c.indexOf("statusdoprocesso") > -1 || c === "vaga")
-    ) {
+    if (h.filter((c) => conhecidos.has(c)).length >= 3) {
       headIdx = i;
       break;
     }
@@ -796,34 +956,43 @@ export function parsePlanilha(
       ok: false,
       msg: "Não encontrei a linha de cabeçalho. Copie a aba incluindo os títulos das colunas.",
     };
-  const head = lines[headIdx]!.split(sep).map(norm);
-  const col = (names: string[]) => {
-    for (const nm of names) {
-      const i = head.findIndex((c) => c === norm(nm) || c.indexOf(norm(nm)) === 0);
-      if (i > -1) return i;
+
+  const brutos = lines[headIdx]!.split(sep).map((h) => h.replace(/\s+/g, " ").trim());
+  const head = brutos.map(norm);
+
+  // Duas passadas: primeiro só nome idêntico, para todos os campos; depois, para
+  // os que sobraram, nome que começa igual. Assim "SLA" nunca rouba "SLA
+  // fechamento", e uma coluna nunca é usada por dois campos.
+  const map = {} as Record<Campo, number>;
+  const usadas = new Set<number>();
+  for (const passada of ["exato", "prefixo"] as const) {
+    for (const c of CAMPOS) {
+      if (map[c.campo] !== undefined && map[c.campo] > -1) continue;
+      map[c.campo] = -1;
+      for (const alias of c.aliases.map(norm)) {
+        const i = head.findIndex(
+          (h, k) => !usadas.has(k) && (passada === "exato" ? h === alias : h.startsWith(alias)),
+        );
+        if (i > -1) {
+          map[c.campo] = i;
+          usadas.add(i);
+          break;
+        }
+      }
     }
-    return -1;
-  };
-  const map = {
-    d: col(["Data Início processo", "Data abertura"]),
-    r: col(["Recrutador"]),
-    u: col(["Unidade"]),
-    g: col(["Requisitante (Gestor Direto)", "Requisitante", "Gestor"]),
-    a: col(["Área", "Area"]),
-    pr: col(["Prioridade"]),
-    v: col(["Vaga"]),
-    sen: col(["Senioridade"]),
-    t: col(["Tipo de Vaga"]),
-    st: col(["Status do Processo", "Status"]),
-    sa: col(["SLA aberto (dias corridos)", "Dias em aberto", "SLA aberto"]),
-    m: col(["Modelo de contratação", "Modelo"]),
-    df: col(["Data de Fechamento da vaga", "Data de Fechamento"]),
-    di: col(["Data de início", "Data de inicio"]),
-    o: col(["Origem do candidato", "Origem"]),
-    b: col(["Base vagas", "Base"]),
-  };
-  if (map.u === -1 || map.st === -1)
-    return { ok: false, msg: "Faltam as colunas Unidade e Status do Processo no trecho colado." };
+  }
+  const colunas: Colunas = {};
+  for (const c of CAMPOS) colunas[c.campo] = map[c.campo] > -1 ? brutos[map[c.campo]]! : null;
+
+  const faltando = OBRIGATORIOS.filter((k) => map[k] === -1);
+  if (faltando.length)
+    return {
+      ok: false,
+      msg: `Não encontrei a(s) coluna(s) ${faltando
+        .map((k) => `“${CAMPOS.find((c) => c.campo === k)!.rotulo}”`)
+        .join(" e ")} no cabeçalho.`,
+    };
+
   const cl = (v: unknown) =>
     v === undefined || v === null ? "" : String(v).replace(/\s+/g, " ").trim();
   const toIso = (v: unknown) => {
@@ -840,6 +1009,9 @@ export function parsePlanilha(
     return iso ? iso[0] : null;
   };
   const at = (c: string[], i: number) => (i > -1 ? cl(c[i]) : "");
+  const cabecalhoStatus = head[map.st]!;
+  const hoje = hojeLocal();
+
   const rows: Vaga[] = [];
   let id = 0;
   let ignoradas = 0;
@@ -848,20 +1020,58 @@ export function parsePlanilha(
     const c = lines[i]!.split(sep);
     const unidade = at(c, map.u);
     const vaga = at(c, map.v);
-    const status = at(c, map.st);
+    const stOrig = at(c, map.st);
     if (!unidade && !vaga) {
       ignoradas++;
       continue;
     }
-    if (norm(status) === "statusdoprocesso") continue;
+    if (norm(stOrig) === cabecalhoStatus) continue; // cabeçalho repetido no meio da aba
+
     const d = toIso(c[map.d]);
-    const df = toIso(c[map.df]) || toIso(c[map.di]);
-    const sa = parseFloat(String(at(c, map.sa)).replace(",", "."));
+    let dfReal = toIso(c[map.df]);
+    const adm = toIso(c[map.adm]);
+    let dfRuim = false;
+    if (dfReal && ((d && dfReal < d) || dfReal > hoje)) {
+      dfReal = null;
+      dfRuim = true;
+    }
+
+    // Situação efetiva: o status da planilha, corrigido pelas datas.
+    //  - Data Fechamento preenchida em vaga que não está fechada, cancelada nem
+    //    pausada → fechada (o status ficou para trás).
+    //  - Status em branco sem data → aberta (linha nova costuma entrar assim).
+    const encerradaOrig = /fechad|cancel|desist/i.test(stOrig);
+    const pausadaOrig = /stand|suspens/i.test(stOrig);
+    let st = stOrig;
+    let ajuste: Vaga["ajuste"];
+    if (!encerradaOrig && !pausadaOrig && dfReal) {
+      st = "Fechada";
+      ajuste = stOrig ? "fechada-pela-data" : "vazio-fechada";
+    } else if (!stOrig) {
+      st = "Aberta";
+      ajuste = "vazio-aberta";
+    }
+    const ehFechada = /fechad/i.test(st);
+
+    // Fechada sem Data Fechamento mas com Admissão já ocorrida: usa a admissão
+    // para pôr a vaga no mês. Fica fora do SLA (ver sf abaixo).
+    let df = dfReal;
+    let dfEst = false;
+    if (!df && ehFechada && adm && (!d || adm >= d) && adm <= hoje) {
+      df = adm;
+      dfEst = true;
+    }
+
     rows.push({
       id: ++id,
       d,
       df,
-      st: status || "—",
+      st,
+      stOrig,
+      ajuste,
+      dfEst: dfEst || undefined,
+      dfRuim: dfRuim || undefined,
+      ct: !!at(c, map.ct) || undefined,
       r: at(c, map.r) || "—",
       u: unidade || "—",
       g: at(c, map.g) || "—",
@@ -873,11 +1083,16 @@ export function parsePlanilha(
       b: at(c, map.b) || "Não informado",
       o: at(c, map.o) || "Não informado",
       pr: at(c, map.pr) || "—",
-      sa: isNaN(sa) ? null : Math.round(sa),
-      sf: d && df ? Math.round((+new Date(df) - +new Date(d)) / 86400000) : null,
+      // Aging calculado, não lido da planilha (a coluna "SLA" é fórmula e quase
+      // sempre vem vazia). O painel recalcula na hora de exibir; este valor só
+      // serve para a exportação.
+      sa: d && !encerradaOrig && !pausadaOrig && !ehFechada ? Math.max(0, diasEntre(d, hoje)) : null,
+      // SLA só com Data Fechamento de verdade: a admissão vem depois do aceite e
+      // inflaria o prazo de quem foi datado por ela.
+      sf: d && dfReal && ehFechada ? diasEntre(d, dfReal) : null,
     });
   }
   if (!rows.length)
     return { ok: false, msg: "Nenhuma linha de vaga foi reconhecida no trecho colado." };
-  return { ok: true, rows, ignoradas };
+  return { ok: true, rows, ignoradas, colunas };
 }

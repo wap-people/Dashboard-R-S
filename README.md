@@ -137,28 +137,57 @@ npm run preview
 - **Cores do painel:** o bloco `:root` em `src/styles.css`.
 - **Nome do repositório mudou?** Ajuste `base` em `vite.config.ts`, senão o site
   publicado carrega sem estilo.
+- **Renomearam uma coluna na planilha?** Acrescente o nome novo na lista `CAMPOS`,
+  em `src/lib/rs-analytics.ts`. Cada campo aceita vários nomes; o primeiro é o
+  que aparece na tela.
+
+---
+
+## Nomes de coluna e cálculos automáticos
+
+Em out/2026 a planilha teve cabeçalhos renomeados e o painel passou a mostrar
+zero fechamentos e aging vazio, **sem avisar**. Desde então:
+
+- **Cada campo aceita o nome atual e os antigos** (lista `CAMPOS`). Hoje o painel
+  reconhece tanto "Data Fechamento" quanto "Data de Fechamento da vaga", tanto
+  "Regime" quanto "Modelo de contratação", e assim por diante.
+- **Coluna não encontrada vira alerta vermelho no topo da tela**, com o nome da
+  coluna, além de aparecer na tabela de qualidade do preenchimento.
+
+E alguns números deixaram de depender de uma coluna só:
+
+| Número | Antes | Agora |
+| --- | --- | --- |
+| Aging (dias em aberto) | coluna "SLA" da planilha — fórmula, quase sempre vazia | calculado: Data Abertura até hoje |
+| Vaga aberta | status escrito exatamente "Aberta" | tudo que não está fechado, cancelado ou pausado |
+| Status desatualizado | — | "Aberta" com Data Fechamento conta como fechada |
+| Status em branco | não contava em lugar nenhum | conta como aberta (ou fechada, se tiver Data Fechamento) |
+| Fechada sem Data Fechamento | ficava fora dos meses | entra no mês da Admissão, se ela já ocorreu |
+
+As vagas datadas pela Admissão **ficam fora do SLA**: a admissão acontece depois
+do aceite e inflaria o prazo. Todo ajuste automático é contado na tabela de
+qualidade do preenchimento, para ninguém confundir estimativa com dado.
 
 ---
 
 ## Qualidade dos dados na planilha
 
-Levantamento de 03/09/2026, sobre 1.162 linhas da aba. Os números mudam conforme
-a planilha é preenchida; o painel recalcula sozinho.
+O painel faz essa varredura sozinho, na tabela **Qualidade do preenchimento**
+(aba *Cenário atual*). Levantamento de 02/10/2026, sobre 1.188 linhas:
 
 | Problema | Linhas | Efeito no painel |
 | --- | --- | --- |
-| Status **Fechada** sem *Data de Fechamento da vaga* | 389 | não entram em "Fechamentos"; se abertas em 2025, saem do recorte |
-| — dessas, sem *Data de início* também | 320 | irrecuperáveis: não há como datar o fechamento |
-| Status em branco | 5 | linhas 955, 1151, 1153, 1162, 1163 — não contam como aberta nem fechada |
-| *Data de Fechamento* anterior à abertura | 2 | linhas 447 e 914 — tratadas como sem data |
+| **Fechada** sem *Data Fechamento* | 435 | 74 entram pela Admissão; 361 ficam fora dos meses |
+| — dessas, abertas em 2026 e com *Etapa atual* ativa | 60 | ver abaixo |
+| **Fechada** sem *Contratado* | 345 | não dá para saber quem ocupou a vaga |
+| **Aberta** com Data Fechamento, Admissão e Contratado | 1 | linha 1144 — contada como fechada |
+| *Contratado* em vaga aberta ou cancelada | 2 | linhas 1138 (aberta) e 292 (cancelada) |
+| *Data Fechamento* anterior à abertura | 2 | linhas 463 e 911 — tratadas como sem data |
+| *Nº Enviados p/ Gestor* com formato de data (ex.: 02/01/1900) | 27 | não afeta o painel; é número formatado como data |
+| *Origem* com "Multirão" e "Mutirão" | 364 + 1 | grafias diferentes viram duas barras |
 
-O item de cima é o que mais afasta o painel da planilha: são **33% de todas as
-vagas fechadas**. Enquanto essas datas não forem preenchidas, "Fechamentos
-datados" fica estruturalmente abaixo do total de *Fechada* da aba — e isso é
-preenchimento, não cálculo.
-
-O desalinhamento de colunas relatado na migração (título da vaga em `Base vagas`,
-status em `Nome do substituido`) **não existe mais** na leitura de 03/09/2026.
+O primeiro item é o que mais afasta o painel da planilha: são **41% das vagas
+fechadas**, e isso é preenchimento, não cálculo.
 
 ---
 

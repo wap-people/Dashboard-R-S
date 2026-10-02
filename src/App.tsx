@@ -10,14 +10,18 @@ import {
   noEscopo,
   parsePlanilha,
   toCsv,
+  type Colunas,
   type Vaga,
 } from "@/lib/rs-analytics";
 import { getVagasFromSheet } from "@/lib/sheets";
 
 const SEED_ROWS = seed as Vaga[];
 const FONTE_PADRAO = "FAROL DE VAGAS 2026 WAP — aba Vagas 2026";
-const LS_ROWS = "wap_rs_full_v1";
-const LS_FONTE = "wap_rs_full_fonte";
+// v2: o cache da v1 guardava linhas lidas com o cabeçalho antigo (sem datas de
+// fechamento) e mostraria o painel quebrado por alguns segundos a cada abertura.
+const LS_ROWS = "wap_rs_full_v2";
+const LS_FONTE = "wap_rs_full_fonte_v2";
+const LS_COLUNAS = "wap_rs_colunas_v2";
 
 /** De quanto em quanto tempo o painel relê a planilha sozinho. */
 const INTERVALO_ATUALIZACAO_MS = 5 * 60 * 1000;
@@ -170,6 +174,9 @@ function ColumnBars({
 
 export default function Dashboard() {
   const [rows, setRows] = useState<Vaga[]>(SEED_ROWS);
+  // Que cabeçalho da planilha foi usado para cada campo. null = base embutida,
+  // sem cabeçalho para conferir.
+  const [colunas, setColunas] = useState<Colunas | null>(null);
   const [fonte, setFonte] = useState(FONTE_PADRAO);
   const [view, setView] = useState<View>("acum");
   const [selMes, setSelMes] = useState("");
@@ -193,6 +200,7 @@ export default function Dashboard() {
           "Google Sheets · aba “Vagas 2026” · atualizado em " +
           new Date(res.carregadoEm).toLocaleString("pt-BR");
         setRows(res.rows as Vaga[]);
+        setColunas(res.colunas);
         setFonte(novaFonte);
         // Não mexer em selMes: a releitura automática jogaria o mês escolhido de
         // volta para o padrão no meio da análise. buildAnalytics já cai no mês
@@ -202,6 +210,7 @@ export default function Dashboard() {
         try {
           localStorage.setItem(LS_ROWS, JSON.stringify(res.rows));
           localStorage.setItem(LS_FONTE, novaFonte);
+          localStorage.setItem(LS_COLUNAS, JSON.stringify(res.colunas));
         } catch {
           /* armazenamento indisponível */
         }
@@ -227,6 +236,12 @@ export default function Dashboard() {
     if (stored && stored.length) {
       setRows(stored);
       setFonte(localStorage.getItem(LS_FONTE) || FONTE_PADRAO);
+      try {
+        const c = localStorage.getItem(LS_COLUNAS);
+        if (c) setColunas(JSON.parse(c) as Colunas);
+      } catch {
+        /* sem cabeçalho guardado: a tabela de qualidade só omite a linha de colunas */
+      }
       setSelMes(mesPadrao(noEscopo(stored)));
     } else {
       setSelMes(mesPadrao(noEscopo(SEED_ROWS)));
@@ -263,7 +278,10 @@ export default function Dashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [modoManual]);
 
-  const a = useMemo(() => buildAnalytics(rows, selMes), [rows, selMes]);
+  const a = useMemo(
+    () => buildAnalytics(rows, selMes, undefined, colunas),
+    [rows, selMes, colunas],
+  );
 
   const kpis = view === "acum" ? a.kpisAcum : view === "mes" ? a.kpisMes : a.kpisAtual;
 
@@ -278,10 +296,12 @@ export default function Dashboard() {
     try {
       localStorage.setItem(LS_ROWS, JSON.stringify(res.rows));
       localStorage.setItem(LS_FONTE, novaFonte);
+      localStorage.setItem(LS_COLUNAS, JSON.stringify(res.colunas));
     } catch {
       /* armazenamento indisponível */
     }
     setRows(res.rows);
+    setColunas(res.colunas);
     setFonte(novaFonte);
     setSelMes(mesPadrao(noEscopo(res.rows)));
     setModoManual(true); // pausa a atualização automática até restaurar a base
@@ -299,10 +319,12 @@ export default function Dashboard() {
     try {
       localStorage.removeItem(LS_ROWS);
       localStorage.removeItem(LS_FONTE);
+      localStorage.removeItem(LS_COLUNAS);
     } catch {
       /* armazenamento indisponível */
     }
     setRows(SEED_ROWS);
+    setColunas(null);
     setFonte(FONTE_PADRAO);
     setSelMes(mesPadrao(noEscopo(SEED_ROWS)));
     setShowImport(false);
@@ -404,6 +426,22 @@ export default function Dashboard() {
           {VIEW_HINT[view]}
         </span>
       </nav>
+
+      {/* Alertas no topo, não no rodapé: os dois significam que os números da
+          tela podem estar errados, e quem só olha os KPIs nunca rola até o fim. */}
+      {erroSheet && (
+        <p className="no-print mt-4 rounded-sm border border-destructive/40 bg-destructive/10 px-4 py-3 text-xs font-semibold text-destructive">
+          {erroSheet}
+        </p>
+      )}
+      {a.colunasAusentes.length > 0 && (
+        <p className="no-print mt-4 rounded-sm border border-destructive/40 bg-destructive/10 px-4 py-3 text-xs leading-[1.55] font-semibold text-destructive">
+          O painel não encontrou{" "}
+          {a.colunasAusentes.length === 1 ? "a coluna" : "as colunas"}{" "}
+          {a.colunasAusentes.map((c) => `“${c}”`).join(", ")} na aba Vagas 2026. Se o cabeçalho
+          foi renomeado, os números que dependem dela aparecem zerados ou como “não informado”.
+        </p>
+      )}
 
       <section className="mt-6 grid grid-cols-2 gap-px overflow-hidden rounded-sm border border-border bg-border md:grid-cols-3 xl:grid-cols-5">
         {kpis.map((k, i) => (
@@ -880,7 +918,7 @@ export default function Dashboard() {
 
           <TableCard
             title="Qualidade do preenchimento"
-            subtitle="campos em branco na planilha que limitam a análise"
+            subtitle="campos em branco e incoerências na planilha que limitam a análise"
             delay={0.35}
           >
             <div className="min-w-[680px] xl:min-w-0">
@@ -918,11 +956,6 @@ export default function Dashboard() {
         </>
       )}
 
-      {erroSheet && (
-        <p className="no-print mt-4 rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-xs font-semibold text-destructive">
-          {erroSheet}
-        </p>
-      )}
 
       <footer className="mt-5 flex flex-col items-baseline justify-between gap-[6px] text-[11px] font-medium tracking-[-0.01em] text-faint md:flex-row md:gap-6">
         <span>{sincronizando ? "Lendo a planilha…" : fonte} · meta de SLA 25 dias</span>
