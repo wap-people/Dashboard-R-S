@@ -800,7 +800,7 @@ export default function Dashboard() {
                 <span className="text-[22px] leading-none font-black tracking-[-0.04em] md:text-[26px]">
                   {u.total}
                   <span className="ml-[5px] text-[11px] font-semibold tracking-[-0.01em] text-subtle">
-                    vagas
+                    {u.total === "1" ? "vaga" : "vagas"}
                   </span>
                 </span>
                 <span className="mt-auto text-[11px] font-medium tracking-[-0.01em] text-subtle">
@@ -840,7 +840,7 @@ export default function Dashboard() {
                 <span className="text-[22px] leading-none font-black tracking-[-0.04em] md:text-[26px]">
                   {r.total}
                   <span className="ml-[5px] text-[11px] font-semibold tracking-[-0.01em] text-subtle">
-                    vagas
+                    {r.total === "1" ? "vaga" : "vagas"}
                   </span>
                 </span>
                 <span className="mt-auto text-[11px] font-medium tracking-[-0.01em] text-subtle">
