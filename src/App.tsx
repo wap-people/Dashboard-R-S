@@ -179,6 +179,8 @@ export default function Dashboard() {
   const [colunas, setColunas] = useState<Colunas | null>(null);
   const [fonte, setFonte] = useState(FONTE_PADRAO);
   const [view, setView] = useState<View>("acum");
+  // Unidade escolhida nos cartões do Cenário atual (chave de equivalência).
+  const [filtroUnidade, setFiltroUnidade] = useState<string | null>(null);
   const [selMes, setSelMes] = useState("");
   const [showImport, setShowImport] = useState(false);
   const [pasteText, setPasteText] = useState("");
@@ -354,6 +356,15 @@ export default function Dashboard() {
   const tblCols = "1.4fr repeat(6, minmax(0, 1fr))";
   const compCols = "1.3fr .7fr .7fr .7fr 1.4fr";
   const consCols = "1.2fr .8fr .5fr 1.6fr";
+  const listaCols =
+    "minmax(0,1.7fr) minmax(0,1fr) minmax(0,1.2fr) minmax(0,.9fr) minmax(0,1fr) .5fr .8fr .55fr";
+
+  // Se a unidade filtrada sumir da base numa releitura, a lista volta a mostrar
+  // tudo em vez de ficar vazia sem explicação.
+  const unidadeFiltrada = a.unidadeTiles.find((u) => u.chave === filtroUnidade) ?? null;
+  const listaVisivel = unidadeFiltrada
+    ? a.listaAbertas.filter((v) => v.chaveUnidade === unidadeFiltrada.chave)
+    : a.listaAbertas;
 
   return (
     <main className="mx-auto min-h-screen max-w-[1680px] px-[14px] pt-4 pb-12 text-foreground md:px-8 md:pt-7 md:pb-16">
@@ -752,8 +763,8 @@ export default function Dashboard() {
             <h2 className="text-[15px] font-bold tracking-[-0.02em]">
               Vagas em aberto por unidade
             </h2>
-            <span className="text-[11px] font-medium text-subtle">
-              status Aberta na base atual
+            <span className="no-print text-[11px] font-medium text-subtle">
+              clique na unidade para filtrar a lista abaixo
             </span>
           </div>
           {/* flex-wrap em vez de grid: o número de unidades varia conforme a
@@ -762,9 +773,18 @@ export default function Dashboard() {
               fechar a linha em qualquer quantidade. */}
           <section className="mt-[10px] flex flex-wrap gap-px overflow-hidden rounded-sm border border-border bg-border">
             {a.unidadeTiles.map((u, i) => (
-              <div
+              <button
                 key={u.label}
-                className="wap-rise flex min-h-[92px] grow basis-[150px] flex-col gap-2 bg-card p-[14px_14px_12px] md:p-[16px_16px_14px]"
+                type="button"
+                aria-pressed={unidadeFiltrada?.chave === u.chave}
+                onClick={() =>
+                  setFiltroUnidade((atual) => (atual === u.chave ? null : u.chave))
+                }
+                className={`wap-rise flex min-h-[92px] grow basis-[150px] cursor-pointer flex-col gap-2 p-[14px_14px_12px] text-left transition-colors md:p-[16px_16px_14px] ${
+                  unidadeFiltrada?.chave === u.chave
+                    ? "bg-surface-alt shadow-[inset_0_-3px_0_var(--ink)]"
+                    : "bg-card hover:bg-surface-alt"
+                }`}
                 style={{ animationDelay: `${i * 0.04}s` }}
               >
                 <span className="text-[10px] leading-[1.3] font-bold tracking-[.08em] text-muted-foreground uppercase">
@@ -779,9 +799,93 @@ export default function Dashboard() {
                 <span className="mt-auto text-[11px] font-medium tracking-[-0.01em] text-subtle">
                   {u.pct} do total
                 </span>
-              </div>
+              </button>
             ))}
           </section>
+
+          <TableCard
+            title={`Vagas em aberto${unidadeFiltrada ? ` · ${unidadeFiltrada.label}` : ""}`}
+            subtitle={`da mais antiga para a mais nova · em azul, acima da meta de 25 dias`}
+            delay={0.05}
+            aside={
+              <span className="flex items-baseline gap-3 text-[11px] font-medium text-subtle">
+                {listaVisivel.length} {listaVisivel.length === 1 ? "vaga" : "vagas"}
+                {unidadeFiltrada && (
+                  <button
+                    type="button"
+                    onClick={() => setFiltroUnidade(null)}
+                    className="no-print font-semibold text-foreground underline underline-offset-2"
+                  >
+                    mostrar todas
+                  </button>
+                )}
+              </span>
+            }
+          >
+            <div className="min-w-[900px] xl:min-w-0">
+              <div
+                className="grid border-b border-border bg-surface-alt text-[10.5px] font-bold tracking-[.07em] text-muted-foreground uppercase"
+                style={{ gridTemplateColumns: listaCols }}
+              >
+                <span className="px-[14px] py-[10px]">Vaga</span>
+                <span className="px-[14px] py-[10px]">Unidade</span>
+                <span className="px-[14px] py-[10px]">Requisitante</span>
+                <span className="px-[14px] py-[10px]">Recrutador</span>
+                <span className="px-[14px] py-[10px]">Etapa</span>
+                <span className="px-[14px] py-[10px] text-center">Prior.</span>
+                <span className="px-[14px] py-[10px] text-right">Aberta em</span>
+                <span className="px-[14px] py-[10px] text-right">Dias</span>
+              </div>
+              {/* Rolagem própria para a lista não empurrar os gráficos para longe;
+                  na impressão ela sai inteira. */}
+              <div className="max-h-[440px] overflow-y-auto print:max-h-none print:overflow-visible">
+                {listaVisivel.map((v) => (
+                  <div
+                    key={v.id}
+                    className="tnum grid items-center border-b border-hairline text-[12.5px] font-medium tracking-[-0.01em] transition-colors hover:bg-surface-alt"
+                    style={{ gridTemplateColumns: listaCols }}
+                  >
+                    <span className="flex min-w-0 flex-col gap-[2px] px-[14px] py-[9px]">
+                      <span className="truncate font-semibold" title={v.vaga}>
+                        {v.vaga}
+                      </span>
+                      <span className="truncate text-[11px] text-subtle" title={v.area}>
+                        {v.area}
+                      </span>
+                    </span>
+                    <span className="truncate px-[14px] py-[9px]" title={v.unidade}>
+                      {v.unidade}
+                    </span>
+                    <span className="truncate px-[14px] py-[9px]" title={v.gestor}>
+                      {v.gestor}
+                    </span>
+                    <span className="truncate px-[14px] py-[9px]">{v.recrutador}</span>
+                    <span className="truncate px-[14px] py-[9px] text-muted-foreground">
+                      {v.etapa}
+                    </span>
+                    <span className="px-[14px] py-[9px] text-center font-semibold">
+                      {v.prioridade}
+                    </span>
+                    <span className="px-[14px] py-[9px] text-right text-muted-foreground">
+                      {v.aberta}
+                    </span>
+                    <span
+                      className={`px-[14px] py-[9px] text-right text-[13.5px] font-extrabold tracking-[-0.03em] ${
+                        v.acimaMeta ? "text-accent" : ""
+                      }`}
+                    >
+                      {v.dias}
+                    </span>
+                  </div>
+                ))}
+                {listaVisivel.length === 0 && (
+                  <p className="px-[14px] py-6 text-center text-[12px] text-subtle">
+                    Nenhuma vaga em aberto na base.
+                  </p>
+                )}
+              </div>
+            </div>
+          </TableCard>
 
           <div className="mt-[14px] grid gap-[14px] xl:grid-cols-3">
             <Card

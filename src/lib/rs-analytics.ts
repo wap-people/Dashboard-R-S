@@ -25,6 +25,8 @@ export type Vaga = {
   dfEst?: boolean;
   /** Coluna "Contratado" preenchida. */
   ct?: boolean;
+  /** Etapa atual do processo (Divulgação, Triagem, Proposta...). */
+  et?: string;
 };
 
 export const META_SLA = 25;
@@ -562,9 +564,34 @@ export function buildAnalytics(
   // maior para a menor, então a leitura começa pela unidade mais pressionada.
   const unidadeTiles = group(abertasHoje, "u").map(([label, list]) => ({
     label,
+    // Chave de equivalência, para o filtro da lista: "Wap Serra" e "WAP Serra"
+    // são a mesma unidade no cartão e precisam ser na lista também.
+    chave: chaveEquivalente(label),
     total: nf(list.length),
     pct: pct(list.length, abertasHoje.length),
   }));
+
+  // Lista nominal das vagas em aberto, da mais antiga para a mais nova — quem
+  // está há mais tempo esperando aparece primeiro.
+  const dataBr = (iso: string | null) =>
+    iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}` : "—";
+  const listaAbertas = abertasHoje
+    .map((r) => ({ r, dias: diasEmAberto(r) }))
+    .sort((x, y) => (y.dias ?? -1) - (x.dias ?? -1))
+    .map(({ r, dias }) => ({
+      id: r.id,
+      chaveUnidade: chaveEquivalente(r.u),
+      vaga: r.v,
+      area: r.a,
+      unidade: r.u,
+      gestor: r.g,
+      recrutador: r.r,
+      etapa: r.et || "—",
+      prioridade: r.pr && r.pr !== "-" ? r.pr : "—",
+      aberta: dataBr(r.d),
+      dias: dias === null ? "—" : nf(dias),
+      acimaMeta: dias !== null && dias > meta,
+    }));
 
   const tipoPairs = agrupa(abertasHoje, (r) =>
     !r.t || r.t === "—" || r.t === "-" ? "Tipo não informado" : r.t,
@@ -743,6 +770,12 @@ export function buildAnalytics(
       "define a fila de atendimento",
     ],
     [
+      nome("et"),
+      abertasHoje.filter((r) => !r.et).length,
+      abertasHoje.length,
+      "a lista de vagas em aberto não mostra em que fase a vaga está",
+    ],
+    [
       nome("o"),
       fechadasTodas.filter((r) => r.df && r.o === "Não informado").length,
       fechadasTodas.filter((r) => r.df).length,
@@ -800,6 +833,7 @@ export function buildAnalytics(
     atualAbertas: nf(abertasHoje.length),
     areaBars,
     unidadeTiles,
+    listaAbertas,
     tipoRows,
     tipoDonut,
     agingBars,
@@ -894,7 +928,8 @@ export type Campo =
   | "df"
   | "adm"
   | "ct"
-  | "o";
+  | "o"
+  | "et";
 
 /** Cabeçalho encontrado na planilha para cada campo; null = não encontrado. */
 export type Colunas = Partial<Record<Campo, string | null>>;
@@ -917,6 +952,7 @@ export const CAMPOS: { campo: Campo; rotulo: string; aliases: string[] }[] = [
   { campo: "adm", rotulo: "Admissão", aliases: ["Admissão", "Data de admissão", "Data de início", "Data de inicio"] },
   { campo: "ct", rotulo: "Contratado", aliases: ["Contratado", "Nome candidato contratado", "Candidato contratado"] },
   { campo: "o", rotulo: "Origem", aliases: ["Origem", "Origem do candidato"] },
+  { campo: "et", rotulo: "Etapa atual", aliases: ["Etapa atual", "Etapa"] },
 ];
 
 /** Para a lista do modal de importação: os nomes atuais. */
@@ -1072,6 +1108,7 @@ export function parsePlanilha(
       dfEst: dfEst || undefined,
       dfRuim: dfRuim || undefined,
       ct: !!at(c, map.ct) || undefined,
+      et: at(c, map.et) || undefined,
       r: at(c, map.r) || "—",
       u: unidade || "—",
       g: at(c, map.g) || "—",
