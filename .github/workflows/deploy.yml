@@ -1,0 +1,57 @@
+name: Publicar no GitHub Pages
+
+# Toda alteração enviada para a branch main reconstrói e republica o painel.
+# Também é possível rodar na mão em Actions > Publicar no GitHub Pages > Run workflow.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Se dois commits chegarem juntos, o segundo espera e o primeiro é descartado.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Baixar o código
+        uses: actions/checkout@v4
+
+      - name: Instalar o Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Instalar dependências
+        run: npm install
+
+      - name: Gerar os arquivos estáticos
+        run: npm run build
+
+      - name: Preparar o Pages
+        uses: actions/configure-pages@v5
+
+      - name: Enviar o resultado do build
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    name: Deploy
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Publicar
+        id: deployment
+        uses: actions/deploy-pages@v4
