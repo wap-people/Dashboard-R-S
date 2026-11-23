@@ -78,6 +78,23 @@ npm run build
 - **Meta de SLA (25 dias):** `META_SLA`, no topo de `src/lib/rs-analytics.ts`.
 - **Repositório renomeado?** Ajuste `base` em `vite.config.ts` e as URLs de retorno no Supabase (Authentication › URL Configuration).
 
+## Banco sempre ativo (plano Free)
+
+O plano Free do Supabase **pausa o projeto depois de 7 dias sem consultas de
+usuário**, e com o banco pausado o painel não carrega. O backup diário que roda
+dentro do banco (pg_cron) não conta como uso.
+
+Por isso o workflow `.github/workflows/manter-supabase-ativo.yml` chama a função
+`public.manter_ativo()` duas vezes por dia (08:17 e 19:47, horário de Brasília). A
+função só devolve o horário do servidor: não lê tabela nenhuma. Ela foi criada na
+migração `manter_ativo` do projeto Supabase, em 23/11/2026.
+
+- **Se o GitHub mandar e-mail de falha** desse workflow, o projeto provavelmente já
+  foi pausado. Reative em Supabase › projeto Farol de Vagas WAP › *Resume project*.
+  Os dados ficam guardados por 90 dias depois da pausa.
+- **Solução definitiva:** passar a organização para o plano **Pro**, que não pausa.
+  Feito isso, o workflow e a função podem ser removidos.
+
 ## Planilha antiga
 
 A planilha "FAROL DE VAGAS 2026 WAP" fica como backup e histórico, somente leitura.

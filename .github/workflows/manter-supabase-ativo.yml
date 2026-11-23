@@ -1,0 +1,57 @@
+name: Manter o banco ativo
+
+# O plano Free do Supabase pausa o projeto "Farol de Vagas WAP" depois de 7 dias
+# sem consultas de usuário, e com o banco pausado o painel não carrega. Tarefas
+# internas do banco (como o backup diário no pg_cron) não contam como uso: em
+# 23/11/2026 chegou o aviso de pausa mesmo com o backup rodando todo dia.
+#
+# Este workflow faz, duas vezes por dia, algumas chamadas à função
+# public.manter_ativo(), que só devolve o horário do servidor: não lê nenhuma
+# tabela e não expõe dado nenhum. A chave usada é a publicável, a mesma que já
+# está no código do painel.
+#
+# Se uma execução falhar, o GitHub avisa por e-mail. Falha aqui quase sempre
+# quer dizer que o projeto já foi pausado: reative em
+# https://supabase.com/dashboard/project/ndivtivopjndgagnalaf
+#
+# Solução definitiva: passar a organização do Supabase para o plano Pro, que não
+# pausa. Aí este workflow pode ser apagado.
+
+on:
+  schedule:
+    - cron: "17 11 * * *" # todo dia, 08:17 em Brasília
+    - cron: "47 22 * * *" # todo dia, 19:47 em Brasília
+  workflow_dispatch:
+
+permissions:
+  actions: write # para religar o próprio agendamento (ver o último passo)
+  contents: read
+
+jobs:
+  manter-ativo:
+    name: Consultar o banco
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Chamar o banco algumas vezes
+        env:
+          SUPABASE_URL: https://ndivtivopjndgagnalaf.supabase.co
+          SUPABASE_PUBLISHABLE_KEY: sb_publishable_PFuqNGkuKMrqLvxcyz9z_A_J8WrXXc3
+        run: |
+          for i in 1 2 3; do
+            curl -fsS --retry 3 --retry-delay 10 \
+              -X POST "$SUPABASE_URL/rest/v1/rpc/manter_ativo" \
+              -H "apikey: $SUPABASE_PUBLISHABLE_KEY" \
+              -H "Content-Type: application/json" \
+              -d '{}'
+            echo
+            sleep 15
+          done
+
+      # O GitHub desliga agendamentos de repositórios públicos que passam 60 dias
+      # sem nenhum commit. Religar o workflow pela API a cada execução impede
+      # isso, sem precisar fazer commits falsos.
+      - name: Manter este agendamento ligado
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/manter-supabase-ativo.yml/enable"
