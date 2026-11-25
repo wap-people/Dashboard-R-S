@@ -7,6 +7,8 @@ export function Botao({
   disabled,
   type = "button",
   title,
+  carregando,
+  className = "",
 }: {
   children: ReactNode;
   onClick?: () => void;
@@ -14,17 +16,29 @@ export function Botao({
   disabled?: boolean;
   type?: "button" | "submit";
   title?: string;
+  /** Mostra o spinner ao lado do texto e bloqueia o clique. */
+  carregando?: boolean;
+  className?: string;
 }) {
+  // "btn" liga os efeitos do kit: mola no hover, varredura de luz e entrada inflando.
   const base =
-    "rounded-full px-[14px] py-[8px] text-xs font-semibold tracking-[-0.01em] transition-colors disabled:cursor-not-allowed disabled:opacity-50";
+    "btn inline-flex items-center justify-center gap-2 rounded-full px-[14px] py-[8px] text-xs font-semibold tracking-[-0.01em] disabled:cursor-not-allowed disabled:opacity-50";
   const estilo = {
-    primario: "border border-primary bg-primary text-primary-foreground hover:opacity-90",
+    primario: "border border-primary bg-primary text-primary-foreground hover:brightness-125",
     secundario: "border border-input bg-card hover:border-foreground",
     perigo: "border border-[oklch(0.55_0.2_27)] bg-card text-[oklch(0.5_0.2_27)] hover:bg-[oklch(0.97_0.02_27)]",
     link: "border border-transparent text-muted-foreground hover:text-foreground",
   }[tipo];
   return (
-    <button type={type} onClick={onClick} disabled={disabled} title={title} className={`${base} ${estilo}`}>
+    <button
+      type={type}
+      onClick={onClick}
+      disabled={disabled || carregando}
+      title={title}
+      aria-busy={carregando || undefined}
+      className={`${base} ${estilo} ${className}`}
+    >
+      {carregando ? <span className="spinner" aria-hidden="true" /> : null}
       {children}
     </button>
   );
@@ -71,13 +85,16 @@ export function Modal({
 }) {
   return (
     <div
-      className="wap-fade fixed inset-0 z-50 flex items-center justify-center bg-[oklch(0.19_0.01_107_/_0.55)] p-[10px] backdrop-blur-[3px] md:p-8"
+      className="modal-fundo fixed inset-0 z-50 flex items-center justify-center p-[10px] md:p-8"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onFechar();
       }}
     >
       <div
-        className="wap-rise flex max-h-[94vh] w-full flex-col overflow-hidden rounded-md bg-card"
+        role="dialog"
+        aria-modal="true"
+        aria-label={titulo}
+        className="glass glass-strong entrar flex max-h-[94vh] w-full flex-col overflow-hidden"
         style={{ maxWidth: largura }}
       >
         <div className="flex items-start justify-between gap-4 border-b border-border px-6 pt-5 pb-4">
@@ -87,7 +104,7 @@ export function Modal({
           </div>
           <button
             onClick={onFechar}
-            className="rounded-full px-2 text-[20px] leading-none text-muted-foreground hover:text-foreground"
+            className="btn rounded-full px-2 text-[20px] leading-none text-muted-foreground hover:text-foreground"
             aria-label="Fechar"
           >
             ×

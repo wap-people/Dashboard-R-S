@@ -11,6 +11,7 @@ import {
   type PerfilDb,
   type VagaDb,
 } from "@/lib/dados";
+import { Numero, SkLinhas } from "@/efeitos";
 import { mensagemErro, supabase } from "@/lib/supabase";
 import { Botao, corStatus, inputCls, Pilula } from "@/ui";
 import VagaForm from "@/VagaForm";
@@ -27,12 +28,14 @@ const norm = (s: string | null | undefined) =>
 
 export default function Vagas({
   vagas,
+  carregando = false,
   perfil,
   dominios,
   perfis,
   onRecarregar,
 }: {
   vagas: VagaDb[];
+  carregando?: boolean;
   perfil: Perfil;
   dominios: Dominio[];
   perfis: PerfilDb[];
@@ -163,7 +166,7 @@ export default function Vagas({
         <div className="flex flex-col gap-1">
           <h1 className="text-[26px] leading-none font-black tracking-[-0.03em]">Vagas</h1>
           <span className="text-[12.5px] font-medium text-muted-foreground">
-            {total.toLocaleString("pt-BR")} vagas no filtro · clique em uma linha para editar
+            <Numero valor={total.toLocaleString("pt-BR")} /> vagas no filtro · clique em uma linha para editar
           </span>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -175,7 +178,7 @@ export default function Vagas({
       </div>
       {erroExport && <p className="mb-3 text-xs font-semibold text-destructive">{erroExport}</p>}
 
-      <div className="grid grid-cols-1 gap-2 rounded-sm border border-border bg-card p-3 md:grid-cols-[2fr_1fr_1fr_1fr_auto]">
+      <div className="glass glass-strong glass-sm entrar grid grid-cols-1 gap-2 p-3 md:grid-cols-[2fr_1fr_1fr_1fr_auto]">
         <input
           className={inputCls}
           placeholder="Buscar por cargo, área, requisitante, contratado, nº..."
@@ -255,7 +258,7 @@ export default function Vagas({
         </div>
       </div>
 
-      <section className="mt-3 overflow-hidden rounded-sm border border-border bg-card">
+      <section className="glass glass-strong entrar mt-3 overflow-hidden" style={{ animationDelay: "70ms" }}>
         <div className="overflow-x-auto">
           <div className="min-w-[980px]">
             <div
@@ -268,6 +271,8 @@ export default function Vagas({
                 </span>
               ))}
             </div>
+            {carregando && vagas.length === 0 && <SkLinhas n={10} />}
+            <div className="lista-cascata">
             {visiveis.map((v) => {
               const dias = diasDesde(v.data_abertura, v.data_fechamento);
               return (
@@ -299,7 +304,8 @@ export default function Vagas({
                 </button>
               );
             })}
-            {visiveis.length === 0 && (
+            </div>
+            {visiveis.length === 0 && !(carregando && vagas.length === 0) && (
               <p className="px-4 py-8 text-center text-[12.5px] font-medium text-muted-foreground">
                 Nenhuma vaga encontrada com esses filtros.
               </p>

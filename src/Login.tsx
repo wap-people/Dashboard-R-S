@@ -67,7 +67,7 @@ export default function Login({ erroInicial }: { erroInicial?: string }) {
 
   return (
     <main className="flex min-h-screen items-center justify-center px-4 py-10">
-      <div className="wap-rise flex w-full max-w-[420px] flex-col gap-6 rounded-md border border-border bg-card p-8">
+      <div className="glass entrar flex w-full max-w-[420px] flex-col gap-6 p-8">
         <div className="flex flex-col gap-3">
           <img src={logoUrl} alt="Wap | Waaw by Alok" className="h-6 w-auto self-start object-contain" />
           <div className="flex flex-col gap-1">
@@ -84,7 +84,7 @@ export default function Login({ erroInicial }: { erroInicial?: string }) {
         {LOGIN_MICROSOFT && (
           <button
             onClick={entrarMicrosoft}
-            className="flex items-center justify-center gap-3 rounded-full border border-primary bg-primary px-4 py-[11px] text-[13px] font-semibold text-primary-foreground hover:opacity-90"
+            className="btn flex items-center justify-center gap-3 rounded-full border border-primary bg-primary px-4 py-[11px] text-[13px] font-semibold text-primary-foreground hover:brightness-125"
           >
             <svg width="16" height="16" viewBox="0 0 21 21" aria-hidden="true">
               <rect x="1" y="1" width="9" height="9" fill="#f25022" />
@@ -122,7 +122,7 @@ export default function Login({ erroInicial }: { erroInicial?: string }) {
                 onChange={(e) => setEmail(e.target.value)}
               />
             </Rotulo>
-            <Botao type="submit" disabled={enviando || !email}>
+            <Botao type="submit" disabled={!email} carregando={enviando}>
               {enviando ? "Enviando..." : "Enviar código"}
             </Botao>
           </form>
@@ -146,7 +146,7 @@ export default function Login({ erroInicial }: { erroInicial?: string }) {
                 onChange={(e) => setCodigo(e.target.value.replace(/\D/g, ""))}
               />
             </Rotulo>
-            <Botao type="submit" tipo="primario" disabled={enviando || codigo.length < 6}>
+            <Botao type="submit" tipo="primario" disabled={codigo.length < 6} carregando={enviando}>
               {enviando ? "Conferindo..." : "Entrar"}
             </Botao>
             <Botao

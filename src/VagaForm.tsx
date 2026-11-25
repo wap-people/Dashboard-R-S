@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
+import { animar, Bolha, confete, esperar, SkLinhas, useAbasLiquidas } from "@/efeitos";
 import {
   CAMPOS_EDITAVEIS,
   type CampoEditavel,
@@ -78,6 +79,28 @@ export default function VagaForm({
   const [salario, setSalario] = useState("");
   const [salarioOrig, setSalarioOrig] = useState("");
   const [aba, setAba] = useState<"dados" | "historico">("dados");
+  const [abaAlvo, setAbaAlvo] = useState<"dados" | "historico">("dados");
+  const [lado, setLado] = useState<"" | "entra-dir" | "entra-esq">("");
+  const conteudoRef = useRef<HTMLDivElement>(null);
+  const { listaRef, indRef } = useAbasLiquidas("vaga-abas", abaAlvo);
+
+  // Deslize entre as abas. O conteúdo do modal não é vidro (o painel do modal é),
+  // então pode sair por opacidade sem apagar o desfoque de ninguém.
+  const irParaAba = async (nova: "dados" | "historico") => {
+    if (nova === abaAlvo) return;
+    setAbaAlvo(nova);
+    const dir = nova === "historico" ? 1 : -1;
+    const a = animar(
+      conteudoRef.current,
+      [{ opacity: 1, transform: "none" }, { opacity: 0, transform: `translateX(${-dir * 36}px)` }],
+      { duration: 160, easing: "cubic-bezier(.4,0,1,1)", fill: "forwards" },
+    );
+    await esperar(a);
+    // Sem cancelar a saída: o invólucro tem key={aba}, então o React troca o
+    // elemento inteiro e o novo já nasce com a animação de entrada.
+    setLado(dir > 0 ? "entra-dir" : "entra-esq");
+    setAba(nova);
+  };
   const [erro, setErro] = useState("");
   const [conflito, setConflito] = useState(false);
   const [salvando, setSalvando] = useState(false);
@@ -188,6 +211,8 @@ export default function VagaForm({
         const { error } = await supabase.from("vagas_salario").upsert({ vaga_id: id, salario: num });
         if (error) throw error;
       }
+      // Vaga que acabou de ser fechada: alguém foi contratado. Confete.
+      if (form.status === "Fechada" && vaga?.status !== "Fechada") confete();
       onSalvo();
     } catch (e) {
       setErro(mensagemErro(e));
@@ -262,38 +287,40 @@ export default function VagaForm({
       rodape={
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-2">
-            {admin && vaga && !excluida && !confirmarExclusao && (
+            <Bolha visivel={admin && !!vaga && !excluida && !confirmarExclusao}>
               <Botao tipo="perigo" onClick={() => setConfirmarExclusao(true)}>
                 Excluir vaga
               </Botao>
-            )}
+            </Bolha>
             {admin && vaga && excluida && (
-              <Botao tipo="secundario" disabled={salvando} onClick={() => void excluir(true)}>
+              <Botao tipo="secundario" carregando={salvando} onClick={() => void excluir(true)}>
                 Restaurar vaga
               </Botao>
             )}
             {confirmarExclusao && (
-              <>
-                <input
-                  className={`${inputCls} w-[260px]`}
-                  placeholder="Motivo da exclusão"
-                  value={motivo}
-                  onChange={(e) => setMotivo(e.target.value)}
-                  maxLength={300}
-                />
-                <Botao tipo="perigo" disabled={salvando} onClick={() => void excluir(false)}>
-                  Confirmar exclusão
-                </Botao>
-                <Botao tipo="link" onClick={() => setConfirmarExclusao(false)}>
-                  Cancelar
-                </Botao>
-              </>
+              <input
+                className={`${inputCls} w-[260px]`}
+                placeholder="Motivo da exclusão"
+                value={motivo}
+                onChange={(e) => setMotivo(e.target.value)}
+                maxLength={300}
+              />
             )}
+            <Bolha visivel={confirmarExclusao}>
+              <Botao tipo="perigo" carregando={salvando} onClick={() => void excluir(false)}>
+                Confirmar exclusão
+              </Botao>
+            </Bolha>
+            <Bolha visivel={confirmarExclusao}>
+              <Botao tipo="link" onClick={() => setConfirmarExclusao(false)}>
+                Cancelar
+              </Botao>
+            </Bolha>
           </div>
           <div className="flex gap-2">
             <Botao onClick={onFechar}>Fechar</Botao>
             {!excluida && (
-              <Botao tipo="primario" disabled={salvando || (!!vaga && !alterado)} onClick={() => void salvar()}>
+              <Botao tipo="primario" disabled={!!vaga && !alterado} carregando={salvando} onClick={() => void salvar()}>
                 {salvando ? "Salvando..." : vaga ? "Salvar alterações" : "Cadastrar vaga"}
               </Botao>
             )}
@@ -302,13 +329,22 @@ export default function VagaForm({
       }
     >
       {vaga && (
-        <div className="mb-4 flex gap-[2px] self-start rounded-full bg-secondary p-[3px]" style={{ width: "fit-content" }}>
+        <div
+          ref={listaRef}
+          role="tablist"
+          aria-label="Seções da vaga"
+          className="abas-liquidas mb-4 flex gap-[2px] self-start rounded-full bg-secondary/70 p-[3px]"
+          style={{ width: "fit-content" }}
+        >
+          <span ref={indRef} className="tab-ind" aria-hidden="true" />
           {(["dados", "historico"] as const).map((k) => (
             <button
               key={k}
-              onClick={() => setAba(k)}
+              role="tab"
+              aria-selected={abaAlvo === k}
+              onClick={() => void irParaAba(k)}
               className={`rounded-full px-4 py-[6px] text-[12px] font-semibold ${
-                aba === k ? "bg-card shadow-[0_1px_3px_rgba(20,20,15,.14)]" : "text-muted-foreground"
+                abaAlvo === k ? "text-foreground" : "text-muted-foreground hover:text-foreground"
               }`}
             >
               {k === "dados" ? "Dados da vaga" : "Histórico de alterações"}
@@ -339,6 +375,7 @@ export default function VagaForm({
         </div>
       )}
 
+      <div ref={conteudoRef} key={aba} className={lado}>
       {aba === "dados" ? (
         <fieldset disabled={excluida} className="flex flex-col gap-5">
           <section className="grid grid-cols-1 gap-4 md:grid-cols-3">
@@ -408,7 +445,7 @@ export default function VagaForm({
       ) : (
         <div className="flex flex-col gap-3">
           {historico === null ? (
-            <span className="text-[12.5px] text-muted-foreground">Carregando histórico...</span>
+            <SkLinhas n={6} />
           ) : historico.length === 0 ? (
             <Aviso tipo="info">
               Nenhuma alteração registrada desde a migração. Vagas vindas da planilha antiga não têm histórico
@@ -442,6 +479,7 @@ export default function VagaForm({
           )}
         </div>
       )}
+      </div>
     </Modal>
   );
 }

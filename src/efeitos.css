@@ -1,0 +1,562 @@
+/*
+ * Efeitos de interface: kit Liquid Glass.
+ *
+ * Origem: "EFEITOS_UI.md", o kit usado no Destaques do Ano 2026. Os valores são
+ * os do kit; as adaptações para esta plataforma estão comentadas.
+ *
+ * Regras do kit que valem para qualquer mudança aqui:
+ *  - anime só transform e opacity; filter e backdrop-filter só em transições curtas;
+ *  - nunca use filtro SVG url(#...);
+ *  - nunca anime opacity ou filter num elemento que CONTÉM painéis de vidro (o
+ *    backdrop-filter dos filhos para de desfocar). Anime o próprio painel;
+ *  - nunca aninhe .glass dentro de .glass: o de dentro só desfocaria o de fora;
+ *  - respeite prefers-reduced-motion, -transparency e -contrast (fim do arquivo).
+ *
+ * A plataforma não tem tema escuro, por isso o bloco escuro do kit ficou de fora:
+ * com ele, o vidro escureceria e o texto, que é sempre escuro, sumiria.
+ */
+
+:root {
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --dur: 260ms;
+  --mola: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --mola-entrada: cubic-bezier(0.2, 1.2, 0.35, 1);
+  --mola-liquida: cubic-bezier(0.55, 1.45, 0.4, 0.92);
+  --mola-viscosa: cubic-bezier(0.3, 1.25, 0.5, 1);
+  --dur-mola: 520ms;
+  --dur-entrada: 680ms;
+
+  /* Nomes que o kit usa, apontados para os tokens que a plataforma já tem. */
+  --surface: var(--card);
+  --focus: var(--ring);
+  --bg-base: var(--background);
+
+  /* Cores do símbolo de barras WAP (azul-petróleo, cereja, amarelo, verde). */
+  --blob-1: #0094a1;
+  --blob-2: #cb2a44;
+  --blob-3: #f8ad0e;
+  --blob-4: #79b446;
+  --cat-1: #0094a1;
+  --cat-2: #cb2a44;
+  --cat-3: #f8ad0e;
+  --cat-4: #79b446;
+
+  --glass-bg: color-mix(in srgb, var(--surface) 62%, transparent);
+  --glass-bg-strong: color-mix(in srgb, var(--surface) 84%, transparent);
+  --glass-border: rgba(255, 255, 255, 0.55);
+  --glass-spec: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  --glass-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.45), rgba(255, 255, 255, 0) 42%);
+  --glass-blur: blur(24px) saturate(180%);
+  --shadow-glass: 0 20px 50px -12px rgba(16, 24, 32, 0.22), 0 4px 14px -4px rgba(16, 24, 32, 0.1);
+  --shadow-float: 0 10px 30px -8px rgba(16, 24, 32, 0.28);
+  --luz: rgba(255, 255, 255, 0.95);
+  --blob-opacity: 0.55;
+}
+
+/* ------------------------------------------------------------------------ */
+/* 1. Fundo vivo                                                             */
+/* ------------------------------------------------------------------------ */
+.bg {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+  contain: strict;
+  isolation: isolate;
+  background:
+    radial-gradient(1200px 800px at 10% -10%, color-mix(in srgb, var(--blob-1) 18%, transparent), transparent 60%),
+    radial-gradient(900px 700px at 110% 110%, color-mix(in srgb, var(--blob-4) 16%, transparent), transparent 60%),
+    var(--bg-base);
+}
+.bg .gotas {
+  position: absolute;
+  inset: 0;
+  opacity: var(--blob-opacity);
+}
+.bg span {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(14px);
+  will-change: transform;
+  animation:
+    flutuar 26s var(--ease) infinite alternate,
+    deformar 17s ease-in-out infinite alternate;
+}
+.bg span:nth-child(even) {
+  animation-direction: alternate, alternate-reverse;
+}
+.bg span:nth-child(1) { width: 46vmax; height: 46vmax; left: -12vmax; top: -10vmax; background: var(--blob-1); }
+.bg span:nth-child(2) { width: 34vmax; height: 34vmax; right: -8vmax; top: 18vh; background: var(--blob-2); animation-duration: 32s; }
+.bg span:nth-child(3) { width: 30vmax; height: 30vmax; left: 20vw; bottom: -14vmax; background: var(--blob-3); animation-duration: 29s; }
+.bg span:nth-child(4) { width: 28vmax; height: 28vmax; right: 10vw; bottom: -10vmax; background: var(--blob-4); animation-duration: 35s; }
+@keyframes flutuar {
+  from { transform: translate3d(0, 0, 0) scale(1); }
+  to { transform: translate3d(4vmax, 3vmax, 0) scale(1.12); }
+}
+@keyframes deformar {
+  0% { border-radius: 50%; }
+  33% { border-radius: 42% 58% 63% 37% / 41% 44% 56% 59%; }
+  66% { border-radius: 61% 39% 45% 55% / 57% 62% 38% 43%; }
+  100% { border-radius: 38% 62% 54% 46% / 49% 36% 64% 51%; }
+}
+
+/* ------------------------------------------------------------------------ */
+/* 2. Vidro                                                                  */
+/* ------------------------------------------------------------------------ */
+/*
+ * Adaptação: o kit põe o brilho (::before) por cima e sobe todos os filhos com
+ * `.glass > * { position: relative }`. Aqui o painel isola o próprio empilhamento
+ * e o brilho vai para z-index -1: fica sobre o fundo do vidro e sob o conteúdo,
+ * sem mexer no posicionamento dos filhos (tabelas, gráficos, listas roláveis).
+ */
+.glass {
+  position: relative;
+  isolation: isolate;
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  border-radius: 28px;
+  box-shadow: var(--glass-spec), var(--shadow-glass);
+}
+.glass::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  background: var(--glass-sheen);
+}
+/* Texto miúdo e denso (tabelas, formulários, modal) fica no vidro mais fechado. */
+.glass-strong {
+  background: var(--glass-bg-strong);
+}
+.glass-sm {
+  border-radius: 20px;
+}
+
+/* ------------------------------------------------------------------------ */
+/* 3. Entrada com zoom e desfoque, e cascata das listas                      */
+/* ------------------------------------------------------------------------ */
+@keyframes vidro-entrar {
+  from { opacity: 0; transform: scale(0.94); filter: blur(12px); }
+  55% { opacity: 1; }
+  to { opacity: 1; transform: scale(1); filter: blur(0); }
+}
+.entrar {
+  animation: vidro-entrar var(--dur-entrada) var(--mola-entrada) backwards;
+}
+/* Só os 12 primeiros itens, 30 ms entre um e outro. */
+.lista-cascata > :nth-child(-n + 12) {
+  animation: vidro-entrar var(--dur-entrada) var(--mola-entrada) backwards;
+}
+.lista-cascata > :nth-child(1) { animation-delay: 140ms; }
+.lista-cascata > :nth-child(2) { animation-delay: 170ms; }
+.lista-cascata > :nth-child(3) { animation-delay: 200ms; }
+.lista-cascata > :nth-child(4) { animation-delay: 230ms; }
+.lista-cascata > :nth-child(5) { animation-delay: 260ms; }
+.lista-cascata > :nth-child(6) { animation-delay: 290ms; }
+.lista-cascata > :nth-child(7) { animation-delay: 320ms; }
+.lista-cascata > :nth-child(8) { animation-delay: 350ms; }
+.lista-cascata > :nth-child(9) { animation-delay: 380ms; }
+.lista-cascata > :nth-child(10) { animation-delay: 410ms; }
+.lista-cascata > :nth-child(11) { animation-delay: 440ms; }
+.lista-cascata > :nth-child(12) { animation-delay: 470ms; }
+
+/* ------------------------------------------------------------------------ */
+/* 4, 5 e 7. Botões: mola, varredura de luz e Bubble Reveal                  */
+/* ------------------------------------------------------------------------ */
+.btn {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  transition:
+    opacity 260ms var(--ease),
+    transform var(--dur-mola) var(--mola),
+    filter 420ms var(--ease),
+    box-shadow var(--dur) var(--ease),
+    background-color var(--dur) var(--ease),
+    border-color var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+.btn:hover:not(:disabled) {
+  transform: scale(1.035);
+}
+.btn:active:not(:disabled) {
+  transform: scale(0.97);
+  transition-duration: 120ms;
+}
+@starting-style {
+  .btn {
+    opacity: 0;
+    transform: scale(0.55);
+    filter: blur(8px);
+  }
+}
+@starting-style {
+  .barra-fixa .btn {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+}
+.btn.bolha-saindo {
+  opacity: 0;
+  pointer-events: none;
+  transition-duration: 220ms;
+}
+
+/* Cartões clicáveis (unidade, recrutador): mola e luz, sem o "inflar". */
+.card {
+  overflow: hidden;
+  transition:
+    transform var(--dur-mola) var(--mola),
+    box-shadow var(--dur) var(--ease),
+    background-color var(--dur) var(--ease);
+}
+.card:hover {
+  transform: scale(1.02);
+  box-shadow: var(--glass-spec), var(--shadow-float);
+}
+.card:active {
+  transform: scale(0.985);
+  transition-duration: 120ms;
+}
+
+.btn::after,
+.card::after {
+  content: "";
+  position: absolute;
+  top: -25%;
+  bottom: -25%;
+  left: 0;
+  width: 45%;
+  pointer-events: none;
+  z-index: 2;
+  opacity: 0;
+  transform: translateX(-170%) skewX(-18deg);
+  background: linear-gradient(
+    100deg,
+    transparent 0%,
+    color-mix(in srgb, var(--accent) 16%, transparent) 30%,
+    var(--luz) 50%,
+    color-mix(in srgb, var(--accent) 16%, transparent) 70%,
+    transparent 100%
+  );
+}
+@media (hover: hover) {
+  .btn:hover:not(:disabled)::after,
+  .card:hover::after {
+    animation: varrer-luz 900ms cubic-bezier(0.4, 0, 0.2, 1);
+  }
+}
+@keyframes varrer-luz {
+  0% { transform: translateX(-170%) skewX(-18deg); opacity: 0; }
+  15%, 85% { opacity: 1; }
+  100% { transform: translateX(330%) skewX(-18deg); opacity: 0; }
+}
+
+/* Spinner dentro do botão enquanto salva. */
+.spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  flex: none;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 999px;
+  animation: girar 0.8s linear infinite;
+}
+@keyframes girar {
+  to { transform: rotate(360deg); }
+}
+
+/* ------------------------------------------------------------------------ */
+/* 6. Liquid Morph (abas)                                                    */
+/* ------------------------------------------------------------------------ */
+/*
+ * Adaptação: as abas daqui podem quebrar linha no celular, então o indicador
+ * acompanha também a altura e a posição vertical do botão ativo. A cor é a
+ * mesma pílula branca que a aba ativa já tinha, para o texto seguir legível.
+ */
+.abas-liquidas {
+  position: relative;
+}
+.abas-liquidas > .tab-ind {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  z-index: 0;
+  border-radius: 999px;
+  background: var(--card);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25), var(--shadow-float);
+  opacity: 0;
+  pointer-events: none;
+  will-change: transform;
+  transition:
+    transform 640ms var(--mola-liquida),
+    width 480ms var(--mola-viscosa),
+    height 480ms var(--mola-viscosa),
+    opacity 200ms var(--ease);
+}
+.abas-liquidas > .tab-ind.pronto { opacity: 1; }
+.abas-liquidas > .tab-ind.parado { transition: none; }
+.abas-liquidas > button {
+  position: relative;
+  z-index: 1;
+  background: transparent;
+  transition: color 320ms var(--ease);
+}
+
+/* ------------------------------------------------------------------------ */
+/* 8. Scroll Float (barra do topo)                                           */
+/* ------------------------------------------------------------------------ */
+.sentinela-rolagem {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 24px;
+  pointer-events: none;
+  visibility: hidden;
+}
+.barra-fixa {
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border-bottom: 1px solid var(--glass-border);
+  box-shadow: var(--glass-spec);
+  transition:
+    box-shadow 450ms var(--ease),
+    background-color 450ms var(--ease),
+    backdrop-filter 450ms var(--ease);
+}
+:root[data-rolou] .barra-fixa {
+  background: var(--glass-bg-strong);
+  -webkit-backdrop-filter: blur(32px) saturate(200%);
+  backdrop-filter: blur(32px) saturate(200%);
+  box-shadow: var(--glass-spec), 0 24px 48px -16px rgba(0, 0, 0, 0.38), 0 6px 16px -6px rgba(0, 0, 0, 0.18);
+}
+
+/* ------------------------------------------------------------------------ */
+/* 9. Seleção com pop e traço do check (cartões de filtro)                   */
+/* ------------------------------------------------------------------------ */
+.card .chk {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: var(--ink);
+  color: #fff;
+  opacity: 0;
+  transform: scale(0.4);
+  transition: opacity 180ms var(--ease), transform 180ms var(--ease);
+}
+.card .chk svg path {
+  stroke-dasharray: 24;
+  stroke-dashoffset: 0;
+}
+.card[aria-pressed="true"] .chk {
+  opacity: 1;
+  transform: none;
+  animation: chk-pop 440ms var(--mola);
+}
+.card[aria-pressed="true"] .ini {
+  animation: chk-pop 440ms var(--mola);
+}
+.card[aria-pressed="true"] .chk svg path {
+  animation: chk-traco 300ms 80ms var(--ease) backwards;
+}
+.ini {
+  display: inline-block;
+  transform-origin: left center;
+}
+@keyframes chk-pop {
+  0% { transform: scale(0.4); }
+  60% { transform: scale(1.18); }
+  100% { transform: scale(1); }
+}
+@keyframes chk-traco {
+  from { stroke-dashoffset: 24; }
+  to { stroke-dashoffset: 0; }
+}
+
+/* Número que pulsa quando muda (o pulso em si é feito por JS). */
+.pulsa {
+  display: inline-block;
+  transform-origin: left center;
+}
+
+/* ------------------------------------------------------------------------ */
+/* 11. Deslize entre etapas (abas do painel e do formulário)                 */
+/* ------------------------------------------------------------------------ */
+@keyframes entrar-dir {
+  from { opacity: 0; transform: translateX(44px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes entrar-esq {
+  from { opacity: 0; transform: translateX(-44px); }
+  to { opacity: 1; transform: none; }
+}
+.entra-dir { animation: entrar-dir 460ms var(--mola-entrada) backwards; }
+.entra-esq { animation: entrar-esq 460ms var(--mola-entrada) backwards; }
+.entra-dir .lista-cascata > *,
+.entra-esq .lista-cascata > * {
+  animation: none;
+}
+
+/* Fundo escurecido do modal. Escurece pela cor de fundo, não pela opacidade:
+   o painel do modal é vidro e está dentro dele (armadilha 2 do kit). Também não
+   leva backdrop-filter, que faria do fundo a "raiz" do desfoque do painel. */
+.modal-fundo {
+  background-color: rgba(30, 30, 26, 0.5);
+  animation: fundo-entrar 200ms var(--ease) both;
+}
+@keyframes fundo-entrar {
+  from { background-color: rgba(30, 30, 26, 0); }
+}
+
+/* ------------------------------------------------------------------------ */
+/* 12. Confete                                                               */
+/* ------------------------------------------------------------------------ */
+.confete {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 60;
+  pointer-events: none;
+}
+
+/* ------------------------------------------------------------------------ */
+/* 13. Skeleton com brilho                                                   */
+/* ------------------------------------------------------------------------ */
+.sk {
+  position: relative;
+  overflow: hidden;
+  display: block;
+  height: 14px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--ink) 9%, transparent);
+}
+.sk::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--surface) 55%, transparent), transparent);
+  animation: sk-brilho 1.4s ease-in-out infinite;
+}
+@keyframes sk-brilho {
+  to { transform: translateX(100%); }
+}
+.sk-label { width: 28%; height: 12px; }
+.sk-titulo { width: 72%; height: 34px; }
+.sk-linha { width: 100%; }
+.sk-linha.curta { width: 62%; }
+.sk-bloco { height: 64px; }
+.sk-botao { width: 160px; height: 48px; border-radius: 999px; }
+
+/* ------------------------------------------------------------------------ */
+/* 14. Foco                                                                  */
+/* ------------------------------------------------------------------------ */
+:where(button, a, [role="tab"], select):focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* ------------------------------------------------------------------------ */
+/* 15. Acessibilidade, celular e impressão (obrigatório)                     */
+/* ------------------------------------------------------------------------ */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass,
+  .barra-fixa {
+    background: var(--surface);
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .glass,
+  .barra-fixa {
+    background: var(--surface);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  .glass::before,
+  .bg span {
+    display: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+@media (prefers-contrast: more) {
+  .glass,
+  .barra-fixa {
+    background: var(--surface);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    border-color: var(--border);
+  }
+  .glass::before,
+  .bg span,
+  .btn::after,
+  .card::after {
+    display: none;
+  }
+  .abas-liquidas > .tab-ind {
+    outline: 2px solid var(--ink);
+  }
+}
+@media (max-width: 600px) {
+  :root {
+    --glass-blur: blur(14px) saturate(160%);
+  }
+  .bg span {
+    filter: blur(40px);
+    animation: none;
+  }
+  .lista-cascata > * {
+    animation: none;
+  }
+  .barra-fixa {
+    -webkit-backdrop-filter: blur(14px) saturate(160%);
+    backdrop-filter: blur(14px) saturate(160%);
+  }
+}
+@media print {
+  .bg,
+  .confete {
+    display: none;
+  }
+  .glass,
+  .barra-fixa {
+    background: #fff;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    box-shadow: none;
+    border-color: var(--border);
+  }
+  .glass::before {
+    display: none;
+  }
+  .entrar,
+  .entra-dir,
+  .entra-esq,
+  .lista-cascata > * {
+    animation: none !important;
+  }
+}

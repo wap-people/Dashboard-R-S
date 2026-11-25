@@ -1,6 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
+import { FundoVivo } from "@/efeitos";
 import Plataforma from "@/Plataforma";
 import "@/styles.css";
 
@@ -27,6 +28,7 @@ if (!el) throw new Error('Elemento <div id="root"> não encontrado no index.html
 
 createRoot(el).render(
   <StrictMode>
+    <FundoVivo />
     <Plataforma />
   </StrictMode>,
 );

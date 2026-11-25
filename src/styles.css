@@ -2,6 +2,8 @@
 @source "../src";
 @source "../index.html";
 @import "tw-animate-css";
+/* Kit Liquid Glass. Fora de @layer de propósito: precisa vencer as utilidades. */
+@import "./efeitos.css";
 
 @custom-variant dark (&:is(.dark *));
 

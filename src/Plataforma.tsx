@@ -14,6 +14,7 @@ import {
   type PerfilDb,
   type VagaDb,
 } from "@/lib/dados";
+import { Sk, useAbasLiquidas, useScrollFloat } from "@/efeitos";
 import { mensagemErro, supabase } from "@/lib/supabase";
 import Login from "@/Login";
 import Vagas from "@/Vagas";
@@ -57,14 +58,24 @@ export default function Plataforma() {
   }, [sessao?.user.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (sessao === undefined || (sessao && perfil === undefined))
-    return <div className="flex min-h-screen items-center justify-center text-[13px] text-muted-foreground">Carregando...</div>;
+    return (
+      <main className="flex min-h-screen items-center justify-center px-4" role="status" aria-label="Carregando">
+        <div className="glass entrar flex w-full max-w-[420px] flex-col gap-4 p-8">
+          <Sk className="sk-label" />
+          <Sk className="sk-titulo" />
+          <Sk className="sk-linha" />
+          <Sk className="sk-linha curta" />
+          <Sk className="sk-botao" />
+        </div>
+      </main>
+    );
 
   if (!sessao) return <Login erroInicial={erroLogin} />;
 
   if (!perfil)
     return (
       <main className="flex min-h-screen items-center justify-center px-4">
-        <div className="flex max-w-[420px] flex-col gap-4 rounded-md border border-border bg-card p-8">
+        <div className="glass entrar flex max-w-[420px] flex-col gap-4 p-8">
           <Aviso>
             O acesso de {sessao.user.email} não está ativo na plataforma. Peça a um administrador do time de People para
             liberar.
@@ -157,6 +168,9 @@ function Area({ perfil }: { perfil: Perfil }) {
 
   const rowsPainel = useMemo(() => paraDashboard(vagas), [vagas]);
 
+  useScrollFloat();
+  const { listaRef, indRef } = useAbasLiquidas("menu", tela);
+
   const abas: { k: Tela; l: string; so?: boolean }[] = [
     { k: "painel", l: "Painel" },
     { k: "vagas", l: "Vagas" },
@@ -167,21 +181,27 @@ function Area({ perfil }: { perfil: Perfil }) {
 
   return (
     <div className="min-h-screen text-foreground">
-      <header className="no-print sticky top-0 z-40 border-b border-border bg-background/95 backdrop-blur">
+      <header className="barra-fixa no-print sticky top-0 z-40">
         <div className="mx-auto flex max-w-[1680px] flex-wrap items-center gap-x-6 gap-y-2 px-[14px] py-3 md:px-8">
           <div className="flex items-center gap-3">
             <img src={logoUrl} alt="Wap | Waaw by Alok" className="h-[18px] w-auto object-contain" />
             <span className="text-[13px] font-extrabold tracking-[-0.02em]">Farol de Vagas</span>
           </div>
-          <nav className="flex flex-wrap gap-[2px] rounded-full bg-secondary p-[3px]">
+          <nav
+            ref={listaRef}
+            aria-label="Seções da plataforma"
+            className="abas-liquidas flex flex-wrap gap-[2px] rounded-full bg-secondary/70 p-[3px]"
+          >
+            <span ref={indRef} className="tab-ind" aria-hidden="true" />
             {abas
               .filter((a) => !a.so || admin)
               .map((a) => (
                 <button
                   key={a.k}
                   onClick={() => setTela(a.k)}
+                  aria-current={tela === a.k ? "page" : undefined}
                   className={`rounded-full px-[14px] py-[6px] text-[12.5px] font-semibold tracking-[-0.01em] ${
-                    tela === a.k ? "bg-card shadow-[0_1px_3px_rgba(20,20,15,.14)]" : "text-muted-foreground"
+                    tela === a.k ? "text-foreground" : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
                   {a.l}
@@ -224,6 +244,7 @@ function Area({ perfil }: { perfil: Perfil }) {
           )}
           <Vagas
             vagas={vagas}
+            carregando={carregando}
             perfil={perfil}
             dominios={dominios}
             perfis={perfis}

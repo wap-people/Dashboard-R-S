@@ -9,6 +9,7 @@ import {
   type PerfilDb,
   ROTULO,
 } from "@/lib/dados";
+import { SkLinhas } from "@/efeitos";
 import { DOMINIO_EMAIL, mensagemErro, supabase } from "@/lib/supabase";
 import { Aviso, Botao, inputCls, Pilula, Rotulo } from "@/ui";
 
@@ -72,7 +73,7 @@ export function Usuarios({ perfis, onRecarregar }: { perfis: PerfilDb[]; onRecar
           <Aviso tipo={msg.tipo}>{msg.t}</Aviso>
         </div>
       )}
-      <section className="overflow-hidden rounded-sm border border-border bg-card">
+      <section className="glass glass-strong entrar overflow-hidden">
         <div className="overflow-x-auto">
           <div className="min-w-[900px]">
             <div
@@ -127,7 +128,7 @@ export function Usuarios({ perfis, onRecarregar }: { perfis: PerfilDb[]; onRecar
         </div>
       </section>
 
-      <section className="mt-5 rounded-sm border border-border bg-card p-5">
+      <section className="glass glass-strong entrar mt-5 p-5" style={{ animationDelay: "70ms" }}>
         <h2 className="mb-4 text-[15px] font-bold tracking-[-0.02em]">Cadastrar novo usuário</h2>
         <div className="grid grid-cols-1 gap-3 md:grid-cols-[1.2fr_1.4fr_.8fr_1fr_auto] md:items-end">
           <Rotulo texto="Nome" obrigatorio>
@@ -160,7 +161,7 @@ export function Usuarios({ perfis, onRecarregar }: { perfis: PerfilDb[]; onRecar
               onChange={(e) => setNovo({ ...novo, nome_recrutador: e.target.value })}
             />
           </Rotulo>
-          <Botao tipo="primario" disabled={salvando} onClick={() => void incluir()}>
+          <Botao tipo="primario" carregando={salvando} onClick={() => void incluir()}>
             Cadastrar
           </Botao>
         </div>
@@ -209,8 +210,12 @@ export function Listas({ dominios, onRecarregar }: { dominios: Dominio[]; onReca
         </div>
       )}
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {CATEGORIAS.map((c) => (
-          <section key={c.key} className="rounded-sm border border-border bg-card p-4">
+        {CATEGORIAS.map((c, i) => (
+          <section
+            key={c.key}
+            className="glass glass-strong glass-sm entrar p-4"
+            style={{ animationDelay: `${Math.min(i, 8) * 40}ms` }}
+          >
             <h2 className="mb-3 text-[14px] font-bold tracking-[-0.02em]">{c.label}</h2>
             <div className="flex flex-wrap gap-[6px]">
               {dominios
@@ -220,7 +225,7 @@ export function Listas({ dominios, onRecarregar }: { dominios: Dominio[]; onReca
                     key={d.id}
                     onClick={() => void alternar(d)}
                     title={d.ativo ? "Clique para desativar" : "Clique para reativar"}
-                    className={`rounded-full border px-[10px] py-[4px] text-[11.5px] font-semibold ${
+                    className={`btn rounded-full border px-[10px] py-[4px] text-[11.5px] font-semibold ${
                       d.ativo ? "border-input bg-card" : "border-dashed border-input bg-muted text-subtle line-through"
                     }`}
                   >
@@ -278,8 +283,10 @@ export function Auditoria() {
   const [limite, setLimite] = useState(200);
   const [erro, setErro] = useState("");
   const [aberto, setAberto] = useState<number | null>(null);
+  const [carregando, setCarregando] = useState(true);
 
   useEffect(() => {
+    setCarregando(true);
     let q = supabase
       .from("auditoria")
       .select("id,em,tabela,registro_id,acao,usuario_email,campos,antes,depois")
@@ -290,6 +297,7 @@ export function Auditoria() {
     void q.then(({ data, error }) => {
       if (error) setErro(mensagemErro(error));
       setEventos((data ?? []) as Evento[]);
+      setCarregando(false);
     });
   }, [tabela, usuario, limite]);
 
@@ -327,7 +335,9 @@ export function Auditoria() {
           onChange={(e) => setUsuario(e.target.value)}
         />
       </div>
-      <section className="overflow-hidden rounded-sm border border-border bg-card">
+      <section className="glass glass-strong entrar overflow-hidden">
+        {carregando && eventos.length === 0 && <SkLinhas n={10} />}
+        <div className="lista-cascata">
         {eventos.map((e) => (
           <div key={e.id} className="border-b border-hairline">
             <button
@@ -363,7 +373,8 @@ export function Auditoria() {
             )}
           </div>
         ))}
-        {eventos.length === 0 && (
+        </div>
+        {eventos.length === 0 && !carregando && (
           <p className="px-4 py-8 text-center text-[12.5px] text-muted-foreground">Nenhum registro.</p>
         )}
       </section>

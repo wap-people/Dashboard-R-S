@@ -1,5 +1,15 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
+import {
+  Bolha,
+  Check,
+  DirecaoCtx,
+  Numero,
+  sairParaLado,
+  Sk,
+  useAbasLiquidas,
+  useClasseEntrada,
+} from "@/efeitos";
 import { supabase } from "@/lib/supabase";
 import {
   buildAnalytics,
@@ -15,6 +25,9 @@ import {
 const BOM = String.fromCharCode(0xfeff);
 
 type View = "acum" | "mes" | "atual";
+
+/** Ordem das abas: define para que lado os painéis deslizam na troca. */
+const ORDEM: View[] = ["acum", "mes", "atual"];
 
 const TABS: { key: View; label: string }[] = [
   { key: "acum", label: "Acumulado" },
@@ -43,9 +56,10 @@ function Card({
   className?: string;
   delay?: number;
 }) {
+  const entrada = useClasseEntrada();
   return (
     <section
-      className={`wap-rise rounded-sm border border-border bg-card p-[18px_16px_20px] md:p-[22px_24px_24px] ${className}`}
+      className={`glass ${entrada} p-[18px_16px_20px] md:p-[22px_24px_24px] ${className}`}
       style={{ animationDelay: `${delay}s` }}
     >
       <div className="mb-5 flex flex-wrap items-baseline justify-between gap-3">
@@ -75,9 +89,10 @@ function TableCard({
   children: React.ReactNode;
   delay?: number;
 }) {
+  const entrada = useClasseEntrada();
   return (
     <section
-      className="wap-rise mt-[14px] overflow-hidden rounded-sm border border-border bg-card"
+      className={`glass glass-strong ${entrada} mt-[14px] overflow-hidden`}
       style={{ animationDelay: `${delay}s` }}
     >
       <div className="flex flex-wrap items-baseline justify-between gap-3 border-b border-border px-6 pt-5 pb-4">
@@ -167,6 +182,35 @@ export default function Dashboard({
 }) {
   const colunas: Colunas | null = null;
   const [view, setView] = useState<View>("acum");
+  // A aba clicada fica marcada na hora (o indicador já desliza); a troca do
+  // conteúdo espera os painéis atuais saírem de lado.
+  const [alvo, setAlvo] = useState<View>("acum");
+  const [direcao, setDirecao] = useState<1 | -1 | null>(null);
+  const conteudoRef = useRef<HTMLDivElement>(null);
+  const trocando = useRef(false);
+  const cancelarSaida = useRef<(() => void) | null>(null);
+  const { listaRef, indRef } = useAbasLiquidas("painel-visao", alvo);
+
+  const irPara = async (novo: View) => {
+    if (novo === view || trocando.current) return;
+    trocando.current = true;
+    setAlvo(novo);
+    const dir = ORDEM.indexOf(novo) > ORDEM.indexOf(view) ? 1 : -1;
+    cancelarSaida.current = await sairParaLado(conteudoRef.current, dir);
+    setDirecao(dir);
+    setView(novo);
+    trocando.current = false;
+  };
+
+  // Depois da troca, desfaz a saída: um painel que o React reaproveitou não pode
+  // ficar preso transparente.
+  useLayoutEffect(() => {
+    cancelarSaida.current?.();
+    cancelarSaida.current = null;
+  }, [view]);
+
+  const entrada = direcao === 1 ? "entra-dir" : direcao === -1 ? "entra-esq" : "entrar";
+  const carregandoPrimeira = carregando && rows.length === 0;
   // Unidade escolhida nos cartões do Cenário atual (chave de equivalência).
   const [filtroUnidade, setFiltroUnidade] = useState<string | null>(null);
   const [filtroRecrutador, setFiltroRecrutador] = useState<string | null>(null);
@@ -209,7 +253,7 @@ export default function Dashboard({
 
   const openMes = (m: string) => {
     setSelMes(m);
-    setView("mes");
+    void irPara("mes");
   };
 
   const tblCols = "1.4fr repeat(6, minmax(0, 1fr))";
@@ -240,21 +284,25 @@ export default function Dashboard({
             <h1 className="text-[25px] leading-none font-black tracking-[-0.03em] md:text-[34px]">
               Recrutamento &amp; Seleção · 2026
             </h1>
-            <span className="text-[12.5px] font-medium tracking-[-0.01em] text-muted-foreground">
-              {a.subtitle}
-            </span>
+            {carregandoPrimeira ? (
+              <Sk className="sk-linha curta" />
+            ) : (
+              <span className="text-[12.5px] font-medium tracking-[-0.01em] text-muted-foreground">
+                {a.subtitle}
+              </span>
+            )}
           </div>
         </div>
         <div className="no-print flex flex-wrap items-center gap-2">
           <button
             onClick={() => void exportCsv()}
-            className="rounded-full border border-input bg-card px-[14px] py-[9px] text-xs font-semibold tracking-[-0.01em] transition-colors hover:border-foreground"
+            className="btn rounded-full border border-input bg-card px-[14px] py-[9px] text-xs font-semibold tracking-[-0.01em] hover:border-foreground"
           >
             Exportar CSV
           </button>
           <button
             onClick={() => window.print()}
-            className="rounded-full border border-input bg-card px-[14px] py-[9px] text-xs font-semibold tracking-[-0.01em] transition-colors hover:border-foreground"
+            className="btn rounded-full border border-input bg-card px-[14px] py-[9px] text-xs font-semibold tracking-[-0.01em] hover:border-foreground"
           >
             PDF
           </button>
@@ -262,15 +310,21 @@ export default function Dashboard({
       </header>
 
       <nav className="no-print flex flex-wrap items-center gap-[14px] border-b border-border py-4">
-        <div className="flex flex-wrap gap-[2px] rounded-full bg-secondary p-[3px]">
+        <div
+          ref={listaRef}
+          role="tablist"
+          aria-label="Visão do painel"
+          className="abas-liquidas flex flex-wrap gap-[2px] rounded-full bg-secondary/70 p-[3px]"
+        >
+          <span ref={indRef} className="tab-ind" aria-hidden="true" />
           {TABS.map((t) => (
             <button
               key={t.key}
-              onClick={() => setView(t.key)}
-              className={`rounded-full px-[18px] py-[7px] text-[12.5px] font-semibold tracking-[-0.01em] transition-all ${
-                view === t.key
-                  ? "bg-card text-foreground shadow-[0_1px_3px_rgba(20,20,15,.14)]"
-                  : "text-muted-foreground"
+              role="tab"
+              aria-selected={alvo === t.key}
+              onClick={() => void irPara(t.key)}
+              className={`rounded-full px-[18px] py-[7px] text-[12.5px] font-semibold tracking-[-0.01em] ${
+                alvo === t.key ? "text-foreground" : "text-muted-foreground hover:text-foreground"
               }`}
             >
               {t.label}
@@ -279,7 +333,7 @@ export default function Dashboard({
         </div>
         <div className="flex-1" />
         <span className="text-[11px] font-medium tracking-[-0.01em] text-subtle">
-          {VIEW_HINT[view]}
+          {VIEW_HINT[alvo]}
         </span>
       </nav>
 
@@ -299,18 +353,47 @@ export default function Dashboard({
         </p>
       )}
 
+      {carregandoPrimeira && (
+        <div className="mt-6 flex flex-col gap-[12px]" role="status" aria-label="Carregando o painel">
+          <div className="grid grid-cols-2 gap-[10px] md:grid-cols-3 xl:grid-cols-5">
+            {Array.from({ length: 5 }, (_, i) => (
+              <div key={i} className="glass glass-sm entrar flex min-h-[122px] flex-col gap-3 p-5">
+                <Sk className="sk-label" />
+                <Sk className="sk-titulo" />
+                <Sk className="sk-linha curta" />
+              </div>
+            ))}
+          </div>
+          <div className="grid gap-[14px] xl:grid-cols-[1.35fr_minmax(0,1fr)]">
+            <div className="glass entrar flex flex-col gap-4 p-6">
+              <Sk className="sk-label" />
+              <Sk className="sk-bloco" />
+              <Sk className="sk-bloco" />
+            </div>
+            <div className="glass entrar flex flex-col gap-4 p-6">
+              <Sk className="sk-label" />
+              <Sk className="sk-linha" />
+              <Sk className="sk-linha" />
+              <Sk className="sk-linha curta" />
+            </div>
+          </div>
+        </div>
+      )}
+
+      <DirecaoCtx.Provider value={direcao}>
+      <div ref={conteudoRef} className={carregandoPrimeira ? "hidden" : ""}>
       {/* Colunas conforme a quantidade de KPIs da aba: o Cenário atual tem 4
-          (saiu Prioridade A) e os outros têm 5. Numa grade fixa de 5, a sobra
-          viraria um bloco cinza vazio. */}
+          (saiu Prioridade A) e os outros têm 5. Cada KPI é um painel de vidro
+          próprio; a seção não anima nada (ela contém os painéis). */}
       <section
-        className={`mt-6 grid grid-cols-2 gap-px overflow-hidden rounded-sm border border-border bg-border ${
+        className={`mt-6 grid grid-cols-2 gap-[10px] ${
           kpis.length === 4 ? "xl:grid-cols-4" : "md:grid-cols-3 xl:grid-cols-5"
         }`}
       >
         {kpis.map((k, i) => (
           <div
-            key={k.label}
-            className="wap-rise flex min-h-[96px] flex-col gap-[10px] bg-card p-[15px_14px_13px] md:min-h-[122px] md:p-[20px_20px_18px]"
+            key={`${view}-${k.label}`}
+            className={`glass glass-sm ${entrada} flex min-h-[96px] flex-col gap-[10px] p-[15px_14px_13px] md:min-h-[122px] md:p-[20px_20px_18px]`}
             style={{ animationDelay: `${i * 0.04}s` }}
           >
             <span className="text-[10.5px] leading-[1.3] font-bold tracking-[.09em] text-muted-foreground uppercase">
@@ -321,7 +404,7 @@ export default function Dashboard({
                 k.alert ? "text-accent" : ""
               }`}
             >
-              {k.value}
+              <Numero valor={k.value} />
               <span className="ml-[6px] text-[13px] font-semibold tracking-[-0.01em] text-subtle">
                 {k.unit}
               </span>
@@ -623,7 +706,7 @@ export default function Dashboard({
               planilha, e numa grade de N colunas as sobras viravam blocos cinza
               vazios no fim da linha. Com grow + basis os cartões esticam para
               fechar a linha em qualquer quantidade. */}
-          <section className="mt-[10px] flex flex-wrap gap-px overflow-hidden rounded-sm border border-border bg-border">
+          <section className="mt-[10px] flex flex-wrap gap-[10px]">
             {a.unidadeTiles.map((u, i) => (
               <button
                 key={u.label}
@@ -632,18 +715,19 @@ export default function Dashboard({
                 onClick={() =>
                   setFiltroUnidade((atual) => (atual === u.chave ? null : u.chave))
                 }
-                className={`wap-rise flex min-h-[92px] grow basis-[150px] cursor-pointer flex-col gap-2 p-[14px_14px_12px] text-left transition-colors md:p-[16px_16px_14px] ${
-                  unidadeFiltrada?.chave === u.chave
-                    ? "bg-surface-alt shadow-[inset_0_-3px_0_var(--ink)]"
-                    : "bg-card hover:bg-surface-alt"
+                className={`glass glass-sm card ${entrada} flex min-h-[92px] grow basis-[150px] cursor-pointer flex-col gap-2 p-[14px_14px_12px] text-left md:p-[16px_16px_14px] ${
+                  unidadeFiltrada?.chave === u.chave ? "glass-strong" : ""
                 }`}
                 style={{ animationDelay: `${i * 0.04}s` }}
               >
-                <span className="text-[10px] leading-[1.3] font-bold tracking-[.08em] text-muted-foreground uppercase">
+                <Check />
+                <span className="pr-6 text-[10px] leading-[1.3] font-bold tracking-[.08em] text-muted-foreground uppercase">
                   {u.label}
                 </span>
                 <span className="text-[22px] leading-none font-black tracking-[-0.04em] md:text-[26px]">
-                  {u.total}
+                  <span className="ini">
+                    <Numero valor={u.total} />
+                  </span>
                   <span className="ml-[5px] text-[11px] font-semibold tracking-[-0.01em] text-subtle">
                     {u.total === "1" ? "vaga" : "vagas"}
                   </span>
@@ -663,7 +747,7 @@ export default function Dashboard({
               clique no recrutador para filtrar a lista abaixo
             </span>
           </div>
-          <section className="mt-[10px] flex flex-wrap gap-px overflow-hidden rounded-sm border border-border bg-border">
+          <section className="mt-[10px] flex flex-wrap gap-[10px]">
             {a.recrutadorTiles.map((r, i) => (
               <button
                 key={r.chave}
@@ -672,18 +756,19 @@ export default function Dashboard({
                 onClick={() =>
                   setFiltroRecrutador((atual) => (atual === r.chave ? null : r.chave))
                 }
-                className={`wap-rise flex min-h-[92px] grow basis-[150px] cursor-pointer flex-col gap-2 p-[14px_14px_12px] text-left transition-colors md:p-[16px_16px_14px] ${
-                  recrutadorFiltrado?.chave === r.chave
-                    ? "bg-surface-alt shadow-[inset_0_-3px_0_var(--ink)]"
-                    : "bg-card hover:bg-surface-alt"
+                className={`glass glass-sm card ${entrada} flex min-h-[92px] grow basis-[150px] cursor-pointer flex-col gap-2 p-[14px_14px_12px] text-left md:p-[16px_16px_14px] ${
+                  recrutadorFiltrado?.chave === r.chave ? "glass-strong" : ""
                 }`}
                 style={{ animationDelay: `${i * 0.04}s` }}
               >
-                <span className="text-[10px] leading-[1.3] font-bold tracking-[.08em] text-muted-foreground uppercase">
+                <Check />
+                <span className="pr-6 text-[10px] leading-[1.3] font-bold tracking-[.08em] text-muted-foreground uppercase">
                   {r.label}
                 </span>
                 <span className="text-[22px] leading-none font-black tracking-[-0.04em] md:text-[26px]">
-                  {r.total}
+                  <span className="ini">
+                    <Numero valor={r.total} />
+                  </span>
                   <span className="ml-[5px] text-[11px] font-semibold tracking-[-0.01em] text-subtle">
                     {r.total === "1" ? "vaga" : "vagas"}
                   </span>
@@ -704,19 +789,21 @@ export default function Dashboard({
             delay={0.05}
             aside={
               <span className="flex items-baseline gap-3 text-[11px] font-medium text-subtle">
-                {listaVisivel.length} {listaVisivel.length === 1 ? "vaga" : "vagas"}
-                {filtrosAtivos.length > 0 && (
+                <span>
+                  <Numero valor={listaVisivel.length} /> {listaVisivel.length === 1 ? "vaga" : "vagas"}
+                </span>
+                <Bolha visivel={filtrosAtivos.length > 0}>
                   <button
                     type="button"
                     onClick={() => {
                       setFiltroUnidade(null);
                       setFiltroRecrutador(null);
                     }}
-                    className="no-print font-semibold text-foreground underline underline-offset-2"
+                    className="btn no-print rounded-full px-2 font-semibold text-foreground underline underline-offset-2"
                   >
                     mostrar todas
                   </button>
-                )}
+                </Bolha>
               </span>
             }
           >
@@ -735,7 +822,7 @@ export default function Dashboard({
               </div>
               {/* Rolagem própria para a lista não empurrar os gráficos para longe;
                   na impressão ela sai inteira. */}
-              <div className="max-h-[440px] overflow-y-auto print:max-h-none print:overflow-visible">
+              <div className="lista-cascata max-h-[440px] overflow-y-auto print:max-h-none print:overflow-visible">
                 {listaVisivel.map((v) => (
                   <div
                     key={v.id}
@@ -955,7 +1042,8 @@ export default function Dashboard({
           </TableCard>
         </>
       )}
-
+      </div>
+      </DirecaoCtx.Provider>
 
       <footer className="mt-5 flex flex-col items-baseline justify-between gap-[6px] text-[11px] font-medium tracking-[-0.01em] text-faint md:flex-row md:gap-6">
         <span>{carregando ? "Atualizando dados..." : fonte} · meta de SLA 25 dias</span>
