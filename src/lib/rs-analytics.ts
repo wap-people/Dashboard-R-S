@@ -1,3 +1,4 @@
+import { celulaSegura } from "@/lib/csv";
 export type Vaga = {
   id: number;
   d: string | null;
@@ -871,7 +872,7 @@ const COL_HEAD = [
 export function toCsv(rows: Vaga[]) {
   const hoje = hojeLocal();
   const esc = (v: unknown) =>
-    '"' + String(v === null || v === undefined ? "" : v).replace(/"/g, '""') + '"';
+    '"' + celulaSegura(v).replace(/"/g, '""') + '"';
   const linhas = noEscopo(rows).map((r) =>
     [
       r.d,

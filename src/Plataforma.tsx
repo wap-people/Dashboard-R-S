@@ -14,6 +14,7 @@ import {
 } from "@/lib/dados";
 import { Sk, SkLinhas, useAbasLiquidas, useScrollFloat } from "@/efeitos";
 import { mensagemErro, supabase } from "@/lib/supabase";
+import { expirouAntesDeAbrir, inativoDemais, limparAtividade, marcarAtividade } from "@/lib/sessao";
 import Login from "@/Login";
 import { Aviso, Botao } from "@/ui";
 
@@ -52,8 +53,7 @@ function TelaCarregando() {
 
 type Tela = "painel" | "vagas" | "usuarios" | "listas" | "auditoria";
 
-/** Sai sozinho depois deste tempo sem uso (boa prática para dados de pessoas). */
-const INATIVIDADE_MS = 60 * 60 * 1000;
+const AVISO_INATIVIDADE = "Sua sessão foi encerrada por inatividade. Entre novamente.";
 
 function erroDaUrl(): string {
   const p = new URLSearchParams(window.location.search + "&" + window.location.hash.replace(/^#/, ""));
@@ -68,12 +68,38 @@ export default function Plataforma() {
   const [sessao, setSessao] = useState<Session | null | undefined>(undefined);
   const [perfil, setPerfil] = useState<Perfil | null | undefined>(undefined);
   const [erroLogin] = useState(erroDaUrl);
+  const [aviso, setAviso] = useState("");
+  const avisarInatividade = useCallback(() => setAviso(AVISO_INATIVIDADE), []);
 
   useEffect(() => {
     if (erroLogin) window.history.replaceState({}, "", window.location.pathname);
-    void supabase.auth.getSession().then(({ data }) => setSessao(data.session));
-    const { data } = supabase.auth.onAuthStateChange((_e, s) => setSessao(s));
-    return () => data.subscription.unsubscribe();
+    let ativo = true;
+    let conferido = false;
+    void supabase.auth.getSession().then(async ({ data }) => {
+      if (data.session && expirouAntesDeAbrir) {
+        // Sessão antiga, de antes do limite de inatividade: encerra antes de mostrar qualquer dado.
+        await supabase.auth.signOut({ scope: "local" }).catch(() => {});
+        limparAtividade();
+        if (!ativo) return;
+        setAviso(AVISO_INATIVIDADE);
+        conferido = true;
+        setSessao(null);
+        return;
+      }
+      if (data.session) marcarAtividade(true);
+      conferido = true;
+      if (ativo) setSessao(data.session);
+    });
+    const { data } = supabase.auth.onAuthStateChange((evento, s) => {
+      if (evento === "SIGNED_OUT") limparAtividade();
+      else if (evento === "SIGNED_IN" && conferido) marcarAtividade(true);
+      // Até a conferência acima terminar, nenhuma sessão restaurada é exibida.
+      if (conferido) setSessao(s);
+    });
+    return () => {
+      ativo = false;
+      data.subscription.unsubscribe();
+    };
   }, [erroLogin]);
 
   useEffect(() => {
@@ -81,6 +107,7 @@ export default function Plataforma() {
       setPerfil(sessao === null ? null : undefined);
       return;
     }
+    setAviso("");
     void supabase.rpc("registrar_acesso").then(({ data, error }) => {
       if (error || !data || !(data as Perfil[]).length) setPerfil(null);
       else setPerfil((data as Perfil[])[0]!);
@@ -100,7 +127,7 @@ export default function Plataforma() {
       </main>
     );
 
-  if (!sessao) return <Login erroInicial={erroLogin} />;
+  if (!sessao) return <Login erroInicial={erroLogin || aviso} />;
 
   if (!perfil)
     return (
@@ -115,10 +142,10 @@ export default function Plataforma() {
       </main>
     );
 
-  return <Area perfil={perfil} />;
+  return <Area perfil={perfil} aoExpirar={avisarInatividade} />;
 }
 
-function Area({ perfil }: { perfil: Perfil }) {
+function Area({ perfil, aoExpirar }: { perfil: Perfil; aoExpirar: () => void }) {
   const admin = perfil.papel === "admin";
   const [tela, setTela] = useState<Tela>(() => {
     const h = window.location.hash.replace("#", "") as Tela;
@@ -130,10 +157,9 @@ function Area({ perfil }: { perfil: Perfil }) {
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState("");
   const [atualizadoEm, setAtualizadoEm] = useState<Date | null>(null);
-  const ultimaAtividade = useRef(Date.now());
   const timer = useRef<number | undefined>(undefined);
   const pendentes = useRef<Record<string, unknown>[]>([]);
-  const ultimaCargaCompleta = useRef(0);
+  const ultimaCargaCompleta = useRef(Date.now()); // a primeira carga já está a caminho
 
   const recarregarVagas = useCallback(async () => {
     setCarregando(true);
@@ -217,19 +243,27 @@ function Area({ perfil }: { perfil: Perfil }) {
 
   useEffect(() => preCarregarTelas(admin), [admin]);
 
-  // Encerramento por inatividade
+  // Encerramento por inatividade. O último uso é compartilhado entre abas (lib/sessao),
+  // então mexer em qualquer aba da plataforma mantém todas ativas.
   useEffect(() => {
-    const marcar = () => (ultimaAtividade.current = Date.now());
-    const eventos = ["mousemove", "keydown", "click", "touchstart"];
+    const marcar = () => marcarAtividade();
+    const eventos = ["mousemove", "keydown", "click", "touchstart", "scroll"];
     eventos.forEach((e) => window.addEventListener(e, marcar, { passive: true }));
-    const id = window.setInterval(() => {
-      if (Date.now() - ultimaAtividade.current > INATIVIDADE_MS) void supabase.auth.signOut();
-    }, 60 * 1000);
+    const conferir = () => {
+      if (!inativoDemais()) return;
+      aoExpirar();
+      void supabase.auth.signOut({ scope: "local" });
+    };
+    const id = window.setInterval(conferir, 60 * 1000);
+    // Computador que dormiu com a aba aberta: confere assim que a aba volta a aparecer.
+    const aoVoltar = () => document.visibilityState === "visible" && conferir();
+    document.addEventListener("visibilitychange", aoVoltar);
     return () => {
       eventos.forEach((e) => window.removeEventListener(e, marcar));
+      document.removeEventListener("visibilitychange", aoVoltar);
       window.clearInterval(id);
     };
-  }, []);
+  }, [aoExpirar]);
 
   useEffect(() => {
     if (window.location.hash !== "#" + tela) window.location.hash = tela;

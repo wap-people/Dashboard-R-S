@@ -1,3 +1,4 @@
+import { celulaSegura } from "@/lib/csv";
 import { supabase } from "@/lib/supabase";
 
 export type Papel = "admin" | "recrutador";
@@ -233,7 +234,7 @@ export const encerrada = (s: string) => /fechad|cancel/i.test(s);
 /** CSV com BOM e ponto e vírgula, que o Excel em português abre direto. */
 export function baixarCsv(nome: string, cab: string[], linhas: (string | number | null | undefined)[][]) {
   const esc = (v: unknown) => {
-    const s = v === null || v === undefined ? "" : String(v);
+    const s = celulaSegura(v);
     return /[;"\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   const txt = [cab, ...linhas].map((l) => l.map(esc).join(";")).join("\r\n");

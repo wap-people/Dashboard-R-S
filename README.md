@@ -37,7 +37,9 @@ publicável do código não lê nada sem estar logado e cadastrado.
 - **Validações de negócio:** listas controladas, vaga Fechada exige data de fechamento, data de fechamento não pode ser futura nem anterior à abertura, substituição exige o nome do substituído.
 - **Sempre um admin ativo:** o banco impede bloquear ou rebaixar o último administrador.
 - **Downloads registrados:** toda exportação de CSV (tela Vagas ou Painel) entra na auditoria com usuário, quantidade de linhas e filtros.
-- **Saída automática** após 60 minutos sem uso.
+- **Saída automática** após 60 minutos sem uso, contados entre todas as abas. Vale também para quem fecha o navegador sem sair: ao reabrir depois do limite, a sessão é encerrada antes de qualquer dado aparecer.
+- **Credencial a cada entrada:** o login pede a senha da Microsoft mesmo com a conta aberta no navegador (`prompt=login`), para que num computador compartilhado ninguém entre com a conta de outra pessoa.
+- **Exportações sem fórmulas:** células que começam com = + - @ saem como texto, para que nada digitado numa vaga vire fórmula ou link ativo no Excel.
 - **Não abre dentro de outros sites** (bloqueio de iframe contra clickjacking).
 - **Backup diário** às 02h (horário de Brasília) dentro do banco, guardado por 35 dias, além do botão "Exportar planilha (CSV)" na tela Vagas.
 - Página com `noindex` e política de conteúdo (CSP) que só permite falar com o próprio Supabase.

@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import logoUrl from "@/assets/wap-logo.png";
 import { DOMINIO_EMAIL, LOGIN_CODIGO_EMAIL, LOGIN_MICROSOFT, mensagemErro, supabase } from "@/lib/supabase";
+import { marcarAtividade } from "@/lib/sessao";
 import { Aviso, Botao, inputCls, Rotulo } from "@/ui";
 
 const urlRetorno = () => window.location.origin + window.location.pathname;
@@ -25,9 +26,18 @@ export default function Login({ erroInicial }: { erroInicial?: string }) {
 
   const entrarMicrosoft = async () => {
     setErro("");
+    // Marca o uso antes de sair para a Microsoft, para o retorno não ser tratado como sessão vencida.
+    marcarAtividade(true);
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "azure",
-      options: { scopes: "openid email profile", redirectTo: urlRetorno() },
+      options: {
+        scopes: "openid email profile",
+        redirectTo: urlRetorno(),
+        // Pede a credencial na Microsoft a cada entrada. Sem isso, num computador
+        // compartilhado, a próxima pessoa entraria direto com a conta Microsoft que
+        // ficou aberta no navegador. Para algo mais leve: "select_account".
+        queryParams: { prompt: "login" },
+      },
     });
     if (error) setErro(traduzErroLogin(error));
   };
