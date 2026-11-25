@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { animar, Bolha, confete, esperar, SkLinhas, useAbasLiquidas } from "@/efeitos";
 import {
   CAMPOS_EDITAVEIS,
+  COLUNAS_VAGA,
   type CampoEditavel,
   type Categoria,
   dataHoraBR,
@@ -72,7 +73,7 @@ export default function VagaForm({
   dominios: Dominio[];
   perfis: PerfilDb[];
   onFechar: () => void;
-  onSalvo: () => void;
+  onSalvo: (linha?: Record<string, unknown>) => void;
 }) {
   const admin = perfil.papel === "admin";
   const [form, setForm] = useState<Form>(() => paraForm(vaga, perfil));
@@ -187,23 +188,26 @@ export default function VagaForm({
     try {
       const payload = montarPayload();
       let id = vaga?.id;
+      let salva: Record<string, unknown> | undefined;
       if (!vaga) {
-        const { data, error } = await supabase.from("vagas").insert(payload).select("id").single();
+        const { data, error } = await supabase.from("vagas").insert(payload).select(COLUNAS_VAGA).single();
         if (error) throw error;
-        id = data.id as number;
+        salva = data as Record<string, unknown>;
+        id = salva.id as number;
       } else if (Object.keys(payload).length) {
         const { data, error } = await supabase
           .from("vagas")
           .update(payload)
           .eq("id", vaga.id)
           .eq("versao", vaga.versao)
-          .select("id");
+          .select(COLUNAS_VAGA);
         if (error) throw error;
         if (!data || data.length === 0) {
           setConflito(true);
           setSalvando(false);
           return;
         }
+        salva = data[0] as Record<string, unknown>;
       }
       if (admin && id && salario !== salarioOrig) {
         const num = salario.trim() === "" ? null : Number(salario.replace(/\./g, "").replace(",", "."));
@@ -213,7 +217,7 @@ export default function VagaForm({
       }
       // Vaga que acabou de ser fechada: alguém foi contratado. Confete.
       if (form.status === "Fechada" && vaga?.status !== "Fechada") confete();
-      onSalvo();
+      onSalvo(salva);
     } catch (e) {
       setErro(mensagemErro(e));
     } finally {
@@ -235,11 +239,11 @@ export default function VagaForm({
       )
       .eq("id", vaga.id)
       .eq("versao", vaga.versao)
-      .select("id");
+      .select(COLUNAS_VAGA);
     setSalvando(false);
     if (error) return setErro(mensagemErro(error));
     if (!data?.length) return setConflito(true);
-    onSalvo();
+    onSalvo(data[0] as Record<string, unknown>);
   };
 
   const campoTexto = (c: CampoEditavel, extra?: { obrigatorio?: boolean; tipo?: string; max?: number }) => (

@@ -1,24 +1,54 @@
 import type { Session } from "@supabase/supabase-js";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 
-import { Auditoria, Listas, Usuarios } from "@/Admin";
-import Dashboard from "@/App";
 import logoUrl from "@/assets/wap-logo.png";
 import {
   type Dominio,
   listarDominios,
   listarPerfis,
   listarVagas,
-  paraDashboard,
+  mesclarVaga,
   type Perfil,
   type PerfilDb,
   type VagaDb,
 } from "@/lib/dados";
-import { Sk, useAbasLiquidas, useScrollFloat } from "@/efeitos";
+import { Sk, SkLinhas, useAbasLiquidas, useScrollFloat } from "@/efeitos";
 import { mensagemErro, supabase } from "@/lib/supabase";
 import Login from "@/Login";
-import Vagas from "@/Vagas";
 import { Aviso, Botao } from "@/ui";
+
+/*
+ * Cada tela é baixada só quando é aberta, para a tela de login carregar leve.
+ * Logo depois de entrar, as demais são baixadas em segundo plano (preCarregarTelas),
+ * então trocar de aba continua instantâneo.
+ */
+const carregarPainel = () => import("@/Painel");
+const carregarVagas = () => import("@/Vagas");
+const carregarAdmin = () => import("@/Admin");
+const Painel = lazy(carregarPainel);
+const Vagas = lazy(carregarVagas);
+const Usuarios = lazy(() => carregarAdmin().then((m) => ({ default: m.Usuarios })));
+const Listas = lazy(() => carregarAdmin().then((m) => ({ default: m.Listas })));
+const Auditoria = lazy(() => carregarAdmin().then((m) => ({ default: m.Auditoria })));
+
+function preCarregarTelas(admin: boolean) {
+  const tarefas = [carregarPainel, carregarVagas, ...(admin ? [carregarAdmin] : [])];
+  const rodar = () => tarefas.forEach((t) => void t().catch(() => {}));
+  if ("requestIdleCallback" in window) window.requestIdleCallback(rodar, { timeout: 3000 });
+  else setTimeout(rodar, 1200);
+}
+
+/** Enquanto a tela é baixada: o mesmo esqueleto de vidro usado no carregamento. */
+function TelaCarregando() {
+  return (
+    <div className="mx-auto max-w-[1680px] px-[14px] pt-6 pb-14 md:px-8" role="status" aria-label="Carregando">
+      <div className="glass glass-strong entrar flex flex-col gap-4 p-6">
+        <Sk className="sk-titulo" />
+        <SkLinhas n={6} />
+      </div>
+    </div>
+  );
+}
 
 type Tela = "painel" | "vagas" | "usuarios" | "listas" | "auditoria";
 
@@ -102,11 +132,14 @@ function Area({ perfil }: { perfil: Perfil }) {
   const [atualizadoEm, setAtualizadoEm] = useState<Date | null>(null);
   const ultimaAtividade = useRef(Date.now());
   const timer = useRef<number | undefined>(undefined);
+  const pendentes = useRef<Record<string, unknown>[]>([]);
+  const ultimaCargaCompleta = useRef(0);
 
   const recarregarVagas = useCallback(async () => {
     setCarregando(true);
     try {
       setVagas(await listarVagas());
+      ultimaCargaCompleta.current = Date.now();
       setAtualizadoEm(new Date());
       setErro("");
     } catch (e) {
@@ -114,6 +147,13 @@ function Area({ perfil }: { perfil: Perfil }) {
     } finally {
       setCarregando(false);
     }
+  }, []);
+
+  /** Aplica na lista só a(s) vaga(s) que mudaram, sem baixar a tabela inteira. */
+  const aplicarVagas = useCallback((linhas: Record<string, unknown>[]) => {
+    if (!linhas.length) return;
+    setVagas((atual) => linhas.reduce(mesclarVaga, atual));
+    setAtualizadoEm(new Date());
   }, []);
 
   const recarregarApoio = useCallback(async () => {
@@ -129,18 +169,53 @@ function Area({ perfil }: { perfil: Perfil }) {
   useEffect(() => {
     void recarregarVagas();
     void recarregarApoio();
-    // Tempo real: quando qualquer pessoa salva uma vaga, todas as telas abertas atualizam.
+    /*
+     * Tempo real: quando qualquer pessoa salva uma vaga, todas as telas abertas
+     * atualizam. O próprio aviso traz a vaga alterada, então ela é aplicada direto
+     * na lista. A tabela inteira só é baixada de novo quando há risco de ter
+     * perdido algo: aviso com erro, rajada grande de mudanças, ou conexão que caiu
+     * e voltou.
+     */
+    let conectouAntes = false;
     const canal = supabase
       .channel("vagas-tempo-real")
-      .on("postgres_changes", { event: "*", schema: "public", table: "vagas" }, () => {
+      .on("postgres_changes", { event: "*", schema: "public", table: "vagas" }, (evento) => {
+        const linha = evento.new as Record<string, unknown> | undefined;
+        const comErro = Array.isArray((evento as { errors?: unknown }).errors) && (evento as { errors: unknown[] }).errors.length > 0;
         window.clearTimeout(timer.current);
-        timer.current = window.setTimeout(() => void recarregarVagas(), 700);
+        if (comErro || !linha || typeof linha.id !== "number") {
+          pendentes.current = [];
+          timer.current = window.setTimeout(() => void recarregarVagas(), 700);
+          return;
+        }
+        pendentes.current.push(linha);
+        timer.current = window.setTimeout(() => {
+          const lote = pendentes.current;
+          pendentes.current = [];
+          if (lote.length > 50) void recarregarVagas();
+          else aplicarVagas(lote);
+        }, 150);
       })
-      .subscribe();
+      .subscribe((status) => {
+        if (status !== "SUBSCRIBED") return;
+        if (conectouAntes) void recarregarVagas();
+        conectouAntes = true;
+      });
+
+    // Rede de segurança: ao voltar para a aba depois de um tempo fora, confere tudo.
+    const aoVoltar = () => {
+      if (document.visibilityState === "visible" && Date.now() - ultimaCargaCompleta.current > 5 * 60 * 1000)
+        void recarregarVagas();
+    };
+    document.addEventListener("visibilitychange", aoVoltar);
     return () => {
+      document.removeEventListener("visibilitychange", aoVoltar);
+      window.clearTimeout(timer.current);
       void supabase.removeChannel(canal);
     };
-  }, [recarregarVagas, recarregarApoio]);
+  }, [recarregarVagas, recarregarApoio, aplicarVagas]);
+
+  useEffect(() => preCarregarTelas(admin), [admin]);
 
   // Encerramento por inatividade
   useEffect(() => {
@@ -165,8 +240,6 @@ function Area({ perfil }: { perfil: Perfil }) {
     window.addEventListener("hashchange", aoMudar);
     return () => window.removeEventListener("hashchange", aoMudar);
   }, [tela]);
-
-  const rowsPainel = useMemo(() => paraDashboard(vagas), [vagas]);
 
   useScrollFloat();
   const { listaRef, indRef } = useAbasLiquidas("menu", tela);
@@ -223,17 +296,9 @@ function Area({ perfil }: { perfil: Perfil }) {
         </div>
       </header>
 
+      <Suspense fallback={<TelaCarregando />}>
       {tela === "painel" && (
-        <Dashboard
-          rows={rowsPainel}
-          carregando={carregando}
-          erro={erro}
-          fonte={
-            atualizadoEm
-              ? `Plataforma Farol de Vagas · ${rowsPainel.length.toLocaleString("pt-BR")} vagas · atualizado às ${atualizadoEm.toLocaleTimeString("pt-BR")}`
-              : "Carregando vagas..."
-          }
-        />
+        <Painel vagas={vagas} carregando={carregando} erro={erro} atualizadoEm={atualizadoEm} />
       )}
       {tela === "vagas" && (
         <>
@@ -248,13 +313,14 @@ function Area({ perfil }: { perfil: Perfil }) {
             perfil={perfil}
             dominios={dominios}
             perfis={perfis}
-            onRecarregar={() => void recarregarVagas()}
+            onVagaSalva={(linha) => (linha ? aplicarVagas([linha]) : undefined)}
           />
         </>
       )}
       {tela === "usuarios" && admin && <Usuarios perfis={perfis} onRecarregar={() => void recarregarApoio()} />}
       {tela === "listas" && admin && <Listas dominios={dominios} onRecarregar={() => void recarregarApoio()} />}
       {tela === "auditoria" && admin && <Auditoria />}
+      </Suspense>
     </div>
   );
 }

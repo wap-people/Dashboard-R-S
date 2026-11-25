@@ -32,14 +32,14 @@ export default function Vagas({
   perfil,
   dominios,
   perfis,
-  onRecarregar,
+  onVagaSalva,
 }: {
   vagas: VagaDb[];
   carregando?: boolean;
   perfil: Perfil;
   dominios: Dominio[];
   perfis: PerfilDb[];
-  onRecarregar: () => void;
+  onVagaSalva: (linha?: Record<string, unknown>) => void;
 }) {
   const admin = perfil.papel === "admin";
   const [busca, setBusca] = useState("");
@@ -340,9 +340,9 @@ export default function Vagas({
           dominios={dominios}
           perfis={perfis}
           onFechar={() => setAberta(null)}
-          onSalvo={() => {
+          onSalvo={(linha) => {
             setAberta(null);
-            onRecarregar();
+            onVagaSalva(linha);
           }}
         />
       )}

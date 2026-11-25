@@ -18,5 +18,22 @@ export default defineConfig({
   build: {
     outDir: "dist",
     sourcemap: false,
+    rolldownOptions: {
+      output: {
+        // Bibliotecas em arquivos próprios: mudam raramente, então o navegador
+        // as reaproveita do cache quando só o código da plataforma muda.
+        codeSplitting: {
+          groups: [
+            {
+              name(id: string) {
+                if (/[\/]node_modules[\/](react|react-dom|scheduler)[\/]/.test(id)) return "react";
+                if (/[\/]node_modules[\/]@supabase[\/]/.test(id)) return "supabase";
+                return null;
+              },
+            },
+          ],
+        },
+      },
+    },
   },
 });

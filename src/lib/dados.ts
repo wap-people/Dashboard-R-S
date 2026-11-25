@@ -1,4 +1,3 @@
-import { parsePlanilha, type Vaga } from "@/lib/rs-analytics";
 import { supabase } from "@/lib/supabase";
 
 export type Papel = "admin" | "recrutador";
@@ -163,6 +162,32 @@ export async function listarVagas(): Promise<VagaDb[]> {
   return todas;
 }
 
+const CAMPOS_VAGA = COLUNAS_VAGA.split(",") as (keyof VagaDb)[];
+
+/** Fica só com as colunas que a tela usa (o evento do tempo real traz a linha inteira). */
+function soColunas(linha: Record<string, unknown>): Partial<VagaDb> {
+  const v: Record<string, unknown> = {};
+  for (const c of CAMPOS_VAGA) if (c in linha) v[c] = linha[c];
+  return v as Partial<VagaDb>;
+}
+
+/**
+ * Aplica uma vaga nova ou alterada na lista em memória, sem baixar a tabela
+ * inteira de novo. Ignora evento atrasado (versão menor que a que já temos).
+ * Campos ausentes no evento (textos longos não alterados) mantêm o valor atual.
+ */
+export function mesclarVaga(lista: VagaDb[], linha: Record<string, unknown>): VagaDb[] {
+  const nova = soColunas(linha);
+  if (typeof nova.id !== "number") return lista;
+  const i = lista.findIndex((v) => v.id === nova.id);
+  if (i < 0) return [...lista, nova as VagaDb];
+  const atual = lista[i]!;
+  if (typeof nova.versao === "number" && nova.versao < atual.versao) return lista;
+  const copia = lista.slice();
+  copia[i] = { ...atual, ...nova };
+  return copia;
+}
+
 export async function listarDominios(): Promise<Dominio[]> {
   const { data, error } = await supabase
     .from("dominios")
@@ -181,60 +206,6 @@ export async function listarPerfis(): Promise<PerfilDb[]> {
     .order("nome");
   if (error) throw error;
   return (data ?? []) as PerfilDb[];
-}
-
-/**
- * Converte as vagas do banco no formato que os cálculos do painel já usam.
- *
- * Em vez de reescrever as regras (status ajustado pelas datas, fechamento
- * estimado pela admissão, recorte 2026...), montamos uma "aba" com os mesmos
- * cabeçalhos da planilha antiga e passamos pelo mesmo leitor. Assim os números
- * do painel continuam batendo com os de antes da migração.
- */
-export function paraDashboard(vagas: VagaDb[]): Vaga[] {
-  const cab = [
-    "Data Abertura",
-    "Unidade",
-    "Status do Processo",
-    "Vaga",
-    "Recrutador",
-    "Requisitante",
-    "Área",
-    "Base vagas",
-    "Tipo de Vaga",
-    "Regime",
-    "Data Fechamento",
-    "Admissão",
-    "Contratado",
-    "Origem",
-    "Etapa atual",
-  ];
-  const limpa = (v: unknown) => (v === null || v === undefined ? "" : String(v).replace(/[\t\r\n]+/g, " "));
-  const linhas = vagas
-    .filter((v) => !v.excluida_em)
-    .map((v) =>
-      [
-        v.data_abertura,
-        v.unidade,
-        v.status,
-        v.cargo,
-        v.recrutador,
-        v.requisitante,
-        v.area,
-        v.base,
-        v.tipo_vaga,
-        v.regime,
-        v.data_fechamento,
-        v.data_admissao,
-        v.contratado,
-        v.origem,
-        v.etapa,
-      ]
-        .map(limpa)
-        .join("\t"),
-    );
-  const res = parsePlanilha([cab.join("\t"), ...linhas].join("\n"));
-  return res.ok ? res.rows : [];
 }
 
 export const hoje = () => {

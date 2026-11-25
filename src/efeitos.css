@@ -74,31 +74,59 @@
   inset: 0;
   opacity: var(--blob-opacity);
 }
+/*
+ * Desempenho: o kit desfoca cada gota com `filter: blur()` e deforma animando
+ * `border-radius`. As duas coisas obrigam o navegador a redesenhar a gota a cada
+ * quadro, e todo painel de vidro por cima refaz o próprio desfoque junto.
+ * Aqui a borda já nasce esfumada (gradiente, pintado uma única vez) e a
+ * deformação é feita só com `transform` (girar e esticar uma gota de contorno
+ * irregular), que a placa de vídeo anima sem redesenhar nada.
+ *   span          -> flutua (translate + scale)
+ *   span::before  -> deforma (rotate + scale desigual); o lóbulo extra deixa o
+ *                    contorno assimétrico, como no morph de border-radius.
+ */
 .bg span {
+  --borda-gota: 36px;
   position: absolute;
-  border-radius: 50%;
-  filter: blur(14px);
   will-change: transform;
-  animation:
-    flutuar 26s var(--ease) infinite alternate,
-    deformar 17s ease-in-out infinite alternate;
+  animation: flutuar 26s var(--ease) infinite alternate;
 }
-.bg span:nth-child(even) {
-  animation-direction: alternate, alternate-reverse;
+.bg span::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(
+      closest-side,
+      var(--cor) calc(100% - var(--borda-gota)),
+      color-mix(in srgb, var(--cor) 50%, transparent) calc(100% - var(--borda-gota) / 2),
+      transparent
+    ),
+    radial-gradient(
+      30% 27% at 64% 33%,
+      var(--cor) calc(100% - var(--borda-gota)),
+      color-mix(in srgb, var(--cor) 50%, transparent) calc(100% - var(--borda-gota) / 2),
+      transparent
+    );
+  will-change: transform;
+  animation: deformar 17s ease-in-out infinite alternate;
 }
-.bg span:nth-child(1) { width: 46vmax; height: 46vmax; left: -12vmax; top: -10vmax; background: var(--blob-1); }
-.bg span:nth-child(2) { width: 34vmax; height: 34vmax; right: -8vmax; top: 18vh; background: var(--blob-2); animation-duration: 32s; }
-.bg span:nth-child(3) { width: 30vmax; height: 30vmax; left: 20vw; bottom: -14vmax; background: var(--blob-3); animation-duration: 29s; }
-.bg span:nth-child(4) { width: 28vmax; height: 28vmax; right: 10vw; bottom: -10vmax; background: var(--blob-4); animation-duration: 35s; }
+.bg span:nth-child(even)::before {
+  animation-direction: alternate-reverse;
+}
+.bg span:nth-child(1) { --cor: var(--blob-1); width: 46vmax; height: 46vmax; left: -12vmax; top: -10vmax; }
+.bg span:nth-child(2) { --cor: var(--blob-2); width: 34vmax; height: 34vmax; right: -8vmax; top: 18vh; animation-duration: 32s; }
+.bg span:nth-child(3) { --cor: var(--blob-3); width: 30vmax; height: 30vmax; left: 20vw; bottom: -14vmax; animation-duration: 29s; }
+.bg span:nth-child(4) { --cor: var(--blob-4); width: 28vmax; height: 28vmax; right: 10vw; bottom: -10vmax; animation-duration: 35s; }
 @keyframes flutuar {
   from { transform: translate3d(0, 0, 0) scale(1); }
   to { transform: translate3d(4vmax, 3vmax, 0) scale(1.12); }
 }
 @keyframes deformar {
-  0% { border-radius: 50%; }
-  33% { border-radius: 42% 58% 63% 37% / 41% 44% 56% 59%; }
-  66% { border-radius: 61% 39% 45% 55% / 57% 62% 38% 43%; }
-  100% { border-radius: 38% 62% 54% 46% / 49% 36% 64% 51%; }
+  0% { transform: rotate(0deg) scale(1, 1); }
+  33% { transform: rotate(24deg) scale(1.07, 0.93); }
+  66% { transform: rotate(-14deg) scale(0.94, 1.08); }
+  100% { transform: rotate(36deg) scale(1.05, 0.95); }
 }
 
 /* ------------------------------------------------------------------------ */
@@ -526,7 +554,10 @@
     --glass-blur: blur(14px) saturate(160%);
   }
   .bg span {
-    filter: blur(40px);
+    --borda-gota: 120px;
+  }
+  .bg span,
+  .bg span::before {
     animation: none;
   }
   .lista-cascata > * {
